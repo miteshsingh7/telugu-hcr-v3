@@ -104,6 +104,14 @@ st.markdown("""
         text-align: center;
         margin-bottom: 10px;
     }
+    .guide-banner {
+        background-color: #F0F9FF;
+        border: 1px dashed #38BDF8;
+        border-radius: 8px;
+        padding: 10px;
+        text-align: center;
+        margin-bottom: 12px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -153,27 +161,29 @@ def load_hcr_model():
 
 
 def make_tracing_background(glyph_text: str, size: int = 300) -> Image.Image:
-    img = Image.new("RGBA", (size, size), (255, 255, 255, 255))
+    img = Image.new("RGB", (size, size), (255, 255, 255))
     if not glyph_text:
         return img
         
     draw = ImageDraw.Draw(img)
     font_paths = [
-        "/System/Library/Fonts/Supplemental/KohinoorTelugu.ttc",
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/System/Library/Fonts/KohinoorTelugu.ttc",
+        "/System/Library/Fonts/Supplemental/Telugu Sangam MN.ttc",
+        "/System/Library/Fonts/Supplemental/Telugu MN.ttc",
         "/Library/Fonts/Arial Unicode.ttf"
     ]
     font = None
     for fp in font_paths:
         if os.path.exists(fp):
             try:
-                font = ImageFont.truetype(fp, 150)
+                font = ImageFont.truetype(fp, 170)
                 break
             except Exception:
                 continue
                 
     if font:
-        draw.text((size // 2, size // 2), glyph_text, font=font, fill=(215, 220, 230, 255), anchor="mm")
+        # Draw clear, visible slate-gray outline
+        draw.text((size // 2, size // 2), glyph_text, font=font, fill=(165, 180, 200), anchor="mm")
     return img
 
 
@@ -184,7 +194,9 @@ def preprocess_image(img: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, 
     if np.mean(arr) < 127:
         arr = 255 - arr
         
-    ink_mask = (arr < 220).astype(np.uint8) * 255
+    ink_mask = (arr < 140).astype(np.uint8) * 255
+    if not np.any(ink_mask > 0):
+        ink_mask = (arr < 220).astype(np.uint8) * 255
     
     if np.any(ink_mask > 0):
         coords = cv2.findNonZero(ink_mask)
@@ -280,14 +292,21 @@ with tab_draw:
             pen_width = st.slider("Pen Thickness:", min_value=3, max_value=16, value=6, step=1)
         with c_opt2:
             trace_choice = st.selectbox(
-                "Faint Tracing Guide (Optional):",
-                ["None", "క (ka)", "అ (a)", "ఆ (aa)", "ల (la)", "ర (ra)", "ప (pa)", "మ (ma)", "ణ (ana)", "చ (cha)", "ట (ta)"]
+                "Tracing Template (Overlay on Canvas):",
+                ["None (Blank Canvas)", "క (ka)", "అ (a)", "ఆ (aa)", "ల (la)", "ర (ra)", "ప (pa)", "మ (ma)", "ణ (ana)", "చ (cha)", "ట (ta)"]
             )
             
         bg_image = None
-        if trace_choice != "None":
+        bg_color = "#FFFFFF"
+        if trace_choice != "None (Blank Canvas)":
             char_to_draw = trace_choice.split(" ")[0]
             bg_image = make_tracing_background(char_to_draw, size=300)
+            bg_color = ""
+            st.markdown(f"""
+            <div class="guide-banner">
+                Trace over the faint <b>{char_to_draw}</b> outline in the canvas below!
+            </div>
+            """, unsafe_allow_html=True)
             
         try:
             from streamlit_drawable_canvas import st_canvas
@@ -296,12 +315,12 @@ with tab_draw:
                 fill_color="rgba(255, 255, 255, 0.0)",
                 stroke_width=pen_width,
                 stroke_color="#000000",
-                background_color="#FFFFFF",
+                background_color=bg_color,
                 background_image=bg_image,
                 height=300,
                 width=300,
                 drawing_mode="freedraw",
-                key=f"canvas_pad_{trace_choice}",
+                key=f"canvas_pad_v_{trace_choice.replace(' ', '_')}",
             )
             has_canvas = True
         except ImportError:
