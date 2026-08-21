@@ -11,12 +11,23 @@ import tensorflow as tf
 from PIL import Image, ImageOps, ImageFilter, ImageDraw, ImageFont
 import streamlit as st
 
-# Patch streamlit.elements.image for streamlit-drawable-canvas background_image compatibility
+# Patch streamlit.elements.image for streamlit-drawable-canvas background_image compatibility in Streamlit 1.35+
 try:
     import streamlit.elements.image as sei
     import streamlit.elements.lib.image_utils as iu
-    if not hasattr(sei, "image_to_url") and hasattr(iu, "image_to_url"):
-        sei.image_to_url = iu.image_to_url
+
+    class _CanvasLayoutWrapper:
+        def __init__(self, width):
+            self.width = width
+
+    def _patched_canvas_image_to_url(image, width_or_layout=None, clamp=False, channels="RGB", output_format="PNG", image_id=""):
+        if isinstance(width_or_layout, int):
+            layout = _CanvasLayoutWrapper(width_or_layout)
+        else:
+            layout = width_or_layout
+        return iu.image_to_url(image, layout, clamp, channels, output_format, image_id)
+
+    sei.image_to_url = _patched_canvas_image_to_url
 except Exception:
     pass
 
@@ -212,7 +223,7 @@ def make_tracing_background(glyph_text: str, size: int = 300) -> Image.Image:
     return img
 
 
-def predict_character(model, tensor_in: np.ndarray) -> np.ndarray:
+def predict_character(model, tensor_in: np.ndarray):
     expected_dim = model.input_shape[1:3]
     actual_dim = tensor_in.shape[1:3]
     assert actual_dim == expected_dim, f"Resolution Mismatch: Model expects {expected_dim}, but got {actual_dim}"
@@ -224,7 +235,16 @@ def predict_character(model, tensor_in: np.ndarray) -> np.ndarray:
         
     with tf.device("/CPU:0"):
         t_tensor = tf.convert_to_tensor(tensor_in, dtype=tf.float32)
-        preds = model(t_tensor, training=False).numpy()[0]
+        raw_out = model(t_tensor, training=False)
+        if isinstance(raw_out, list) and len(raw_out) == 3:
+            # Multi-Task outputs: (base, mod, vattu)
+            preds = {
+                "base": raw_out[0].numpy()[0],
+                "modifier": raw_out[1].numpy()[0],
+                "vattu": raw_out[2].numpy()[0],
+            }
+        else:
+            preds = raw_out.numpy()[0]
     return preds
 
 
@@ -377,58 +397,111 @@ with tab_draw:
                 
                 preds = predict_character(model, tensor_in)
                 
-                # 1. Primary Base Letter Aggregation (Hierarchical Root Letter)
-                root_scores = {}
-                root_best_subclass = {}
-                for i, p in enumerate(preds):
-                    bg, bd = get_base_letter(class_names[i])
-                    root_scores[bg] = root_scores.get(bg, 0.0) + float(p)
-                    if bg not in root_best_subclass or float(p) > root_best_subclass[bg][1]:
-                        root_best_subclass[bg] = (class_names[i], float(p))
+                if isinstance(preds, dict):
+                    # Multi-Task Hierarchical Model Output
+                    base_p = preds["base"]
+                    mod_p = preds["modifier"]
+                    vattu_p = preds["vattu"]
                     
-                sorted_roots = sorted(root_scores.items(), key=lambda x: x[1], reverse=True)[:3]
-                top_base_glyph, top_base_conf = sorted_roots[0]
-                
-                # 2. Winning Root's Best Diacritic Subclass
-                best_sub_cls, best_sub_prob = root_best_subclass[top_base_glyph]
-                best_glyph, best_desc, best_cat = map_class_to_telugu(best_sub_cls)
-                
-                # 3. Global Top Candidates for Detailed Debug View
-                top_indices = np.argsort(preds)[::-1][:5]
-                top1_cls = class_names[top_indices[0]]
-                
-                st.markdown(f"""
-                <div class="glyph-box">
-                    <div style="font-size: 1.1rem; color: #166534; font-weight: 600; text-transform: uppercase;">Identified Telugu Character:</div>
-                    <div class="telugu-glyph">{best_glyph}</div>
-                    <div class="glyph-name">Root Letter: {top_base_glyph} ({best_desc}) • {top_base_conf*100:.1f}% Confidence</div>
-                    <div class="glyph-category">Category: {best_cat}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown("##### 🏆 Primary Letter Candidates (Top-3):")
-                for rank, (bglyph, bconf) in enumerate(sorted_roots, 1):
-                    sub_c, _ = root_best_subclass[bglyph]
-                    sub_g, sub_d, _ = map_class_to_telugu(sub_c)
-                    col_b1, col_b2 = st.columns([1.5, 3.5])
-                    with col_b1:
-                        st.markdown(f"**#{rank} &nbsp; `{sub_g}`** ({bglyph})")
-                    with col_b2:
-                        st.progress(float(min(1.0, bconf)), text=f"{bconf*100:.1f}%")
+                    # Load grapheme mappings
+                    maps_path = Path("outputs/grapheme_maps.json")
+                    if maps_path.exists():
+                        with open(maps_path, "r", encoding="utf-8") as f:
+                            g_maps = json.load(f)
+                        base_letters = g_maps["base_letters"]
+                        vowel_mods = g_maps["vowel_modifiers"]
+                    else:
+                        from src.data.decomposition import BASE_LETTERS, VOWEL_MODIFIERS
+                        base_letters = BASE_LETTERS
+                        vowel_mods = VOWEL_MODIFIERS
+                    
+                    top_b_idx = int(np.argmax(base_p))
+                    top_b_glyph = base_letters[top_b_idx] if top_b_idx < len(base_letters) else "క"
+                    top_b_conf = float(base_p[top_b_idx])
+                    
+                    top_m_idx = int(np.argmax(mod_p))
+                    top_m_name = vowel_mods[top_m_idx] if top_m_idx < len(vowel_mods) else "none"
+                    top_m_conf = float(mod_p[top_m_idx])
+                    
+                    # Top 3 base candidates
+                    top_b_ranks = np.argsort(base_p)[::-1][:3]
+                    
+                    st.markdown(f"""
+                    <div class="glyph-box">
+                        <div style="font-size: 1.1rem; color: #166534; font-weight: 600; text-transform: uppercase;">Identified Telugu Letter (Multi-Task):</div>
+                        <div class="telugu-glyph">{top_b_glyph}</div>
+                        <div class="glyph-name">Base Akshara: {top_b_glyph} ({top_b_conf*100:.1f}% Confidence)</div>
+                        <div class="glyph-category">Vowel Sign: {top_m_name} ({top_m_conf*100:.1f}%)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("##### 🏆 Primary Letter Candidates (Top-3):")
+                    for rank, b_i in enumerate(top_b_ranks, 1):
+                        b_glyph = base_letters[b_i] if b_i < len(base_letters) else "?"
+                        b_c = float(base_p[b_i])
+                        col_b1, col_b2 = st.columns([1.5, 3.5])
+                        with col_b1:
+                            st.markdown(f"**#{rank} &nbsp; `{b_glyph}`**")
+                        with col_b2:
+                            st.progress(float(min(1.0, b_c)), text=f"{b_c*100:.1f}%")
+                            
+                    with st.expander("🔬 Multi-Task Head Probabilities"):
+                        st.write(f"**Base Head Top-3:** {[(base_letters[i], f'{base_p[i]*100:.1f}%') for i in top_b_ranks]}")
+                        top_m_ranks = np.argsort(mod_p)[::-1][:3]
+                        st.write(f"**Modifier Head Top-3:** {[(vowel_mods[i], f'{mod_p[i]*100:.1f}%') for i in top_m_ranks]}")
+                else:
+                    # 1. Primary Base Letter Aggregation (Hierarchical Root Letter)
+                    root_scores = {}
+                    root_best_subclass = {}
+                    for i, p in enumerate(preds):
+                        bg, bd = get_base_letter(class_names[i])
+                        root_scores[bg] = root_scores.get(bg, 0.0) + float(p)
+                        if bg not in root_best_subclass or float(p) > root_best_subclass[bg][1]:
+                            root_best_subclass[bg] = (class_names[i], float(p))
                         
-                with st.expander("🔬 Priority 2 Debug View (Exact Array & Logits)"):
-                    col_d1, col_d2 = st.columns([1, 2])
-                    with col_d1:
-                        st.image(preproc_img, caption=f"Canonical Shape: {tensor_in.shape}", width=120)
-                    with col_d2:
-                        st.code(f"Model Input Shape: {model.input_shape}\nTop-1 Class Index: {top_indices[0]}\nClass Name: {top1_cls}\nRaw Probability: {preds[top_indices[0]]:.6f}")
-                        
-                with st.expander("🔬 View Detailed 630-Class Diacritic Predictions"):
-                    for rank, idx in enumerate(top_indices, 1):
-                        c_name = class_names[idx]
-                        glyph, desc, _ = map_class_to_telugu(c_name)
-                        conf = preds[idx]
-                        st.write(f"#{rank} `[Index {idx}] {glyph}` ({desc}) — {conf*100:.1f}%")
+                    sorted_roots = sorted(root_scores.items(), key=lambda x: x[1], reverse=True)[:3]
+                    top_base_glyph, top_base_conf = sorted_roots[0]
+                    
+                    # 2. Winning Root's Best Diacritic Subclass
+                    best_sub_cls, best_sub_prob = root_best_subclass[top_base_glyph]
+                    best_glyph, best_desc, best_cat = map_class_to_telugu(best_sub_cls)
+                    
+                    # 3. Global Top Candidates for Detailed Debug View
+                    top_indices = np.argsort(preds)[::-1][:5]
+                    top1_cls = class_names[top_indices[0]]
+                    
+                    st.markdown(f"""
+                    <div class="glyph-box">
+                        <div style="font-size: 1.1rem; color: #166534; font-weight: 600; text-transform: uppercase;">Identified Telugu Character:</div>
+                        <div class="telugu-glyph">{best_glyph}</div>
+                        <div class="glyph-name">Root Letter: {top_base_glyph} ({best_desc}) • {top_base_conf*100:.1f}% Confidence</div>
+                        <div class="glyph-category">Category: {best_cat}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("##### 🏆 Primary Letter Candidates (Top-3):")
+                    for rank, (bglyph, bconf) in enumerate(sorted_roots, 1):
+                        sub_c, _ = root_best_subclass[bglyph]
+                        sub_g, sub_d, _ = map_class_to_telugu(sub_c)
+                        col_b1, col_b2 = st.columns([1.5, 3.5])
+                        with col_b1:
+                            st.markdown(f"**#{rank} &nbsp; `{sub_g}`** ({bglyph})")
+                        with col_b2:
+                            st.progress(float(min(1.0, bconf)), text=f"{bconf*100:.1f}%")
+                            
+                    with st.expander("🔬 Priority 2 Debug View (Exact Array & Logits)"):
+                        col_d1, col_d2 = st.columns([1, 2])
+                        with col_d1:
+                            st.image(preproc_img, caption=f"Canonical Shape: {tensor_in.shape}", width=120)
+                        with col_d2:
+                            st.code(f"Model Input Shape: {model.input_shape}\nTop-1 Class Index: {top_indices[0]}\nClass Name: {top1_cls}\nRaw Probability: {preds[top_indices[0]]:.6f}")
+                            
+                    with st.expander("🔬 View Detailed 630-Class Diacritic Predictions"):
+                        for rank, idx in enumerate(top_indices, 1):
+                            c_name = class_names[idx]
+                            glyph, desc, _ = map_class_to_telugu(c_name)
+                            conf = preds[idx]
+                            st.write(f"#{rank} `[Index {idx}] {glyph}` ({desc}) — {conf*100:.1f}%")
         else:
             st.info("Draw a character on the canvas on the left or select a sample from the Visual Gallery!")
 
