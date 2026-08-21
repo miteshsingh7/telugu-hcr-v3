@@ -91,8 +91,6 @@ def load_hcr_model():
         ROOT_DIR / "checkpoints/telugu_v3_best.keras",
         ROOT_DIR / "checkpoints/track_a_best.keras",
         ROOT_DIR / "checkpoints/track_b_best.keras",
-        Path("/Users/miteshsingh/Downloads/latest (1).keras"),
-        Path("/Users/miteshsingh/Downloads/model.keras"),
     ]
     
     loaded_model = None
@@ -109,7 +107,6 @@ def load_hcr_model():
     class_names = []
     class_map_paths = [
         ROOT_DIR / "outputs/class_names.json",
-        ROOT_DIR / "outputs/label_map.json",
         ROOT_DIR / "data_samples/class_names.json",
     ]
     
@@ -117,12 +114,13 @@ def load_hcr_model():
         if cmp.exists():
             with open(cmp, "r") as f:
                 data = json.load(f)
-                if isinstance(data, dict):
-                    class_names = [k for k, _ in sorted(data.items(), key=lambda x: x[1])]
-                elif isinstance(data, list):
+                if isinstance(data, list):
                     class_names = data
-                break
-                
+                    break
+                elif isinstance(data, dict):
+                    class_names = [k for k, _ in sorted(data.items(), key=lambda x: x[1])]
+                    break
+                    
     if not class_names:
         class_names = [f"Class_{i}" for i in range(630)]
         
@@ -132,13 +130,36 @@ def load_hcr_model():
 def preprocess_canvas_image(img: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, Image.Image]:
     gray = img.convert("L")
     arr = np.array(gray)
-    if np.mean(arr) > 127:
+    
+    if np.mean(arr) < 127:
         gray = ImageOps.invert(gray)
+        arr = np.array(gray)
         
-    resized = gray.resize((img_size, img_size), Image.Resampling.BILINEAR)
-    arr_norm = np.array(resized, dtype=np.float32) / 255.0
+    dark_mask = arr < 220
+    if np.any(dark_mask):
+        y_indices, x_indices = np.where(dark_mask)
+        ymin, ymax = np.min(y_indices), np.max(y_indices)
+        xmin, xmax = np.min(x_indices), np.max(x_indices)
+        
+        pad = int(max(ymax - ymin, xmax - xmin) * 0.15)
+        ymin = max(0, ymin - pad)
+        ymax = min(arr.shape[0], ymax + pad)
+        xmin = max(0, xmin - pad)
+        xmax = min(arr.shape[1], xmax + pad)
+        
+        cropped = gray.crop((xmin, ymin, xmax, ymax))
+    else:
+        cropped = gray
+
+    w, h = cropped.size
+    target_square = max(w, h)
+    square_img = Image.new("L", (target_square, target_square), color=255)
+    square_img.paste(cropped, ((target_square - w) // 2, (target_square - h) // 2))
+    
+    final_img = square_img.resize((img_size, img_size), Image.Resampling.BILINEAR)
+    arr_norm = np.array(final_img, dtype=np.float32) / 255.0
     tensor = np.expand_dims(np.expand_dims(arr_norm, -1), 0)
-    return tensor, resized
+    return tensor, final_img
 
 
 model, model_path, class_names = load_hcr_model()
@@ -176,20 +197,20 @@ with tab_draw:
     
     with col_canvas:
         st.markdown("#### 🖌️ Draw a Telugu Character:")
-        st.caption("Use your mouse or touch screen to draw any Telugu vowel, consonant, or conjunct.")
+        st.caption("Draw any character in black on the white canvas below:")
         
         try:
             from streamlit_drawable_canvas import st_canvas
             
             canvas_result = st_canvas(
                 fill_color="rgba(255, 255, 255, 0.0)",
-                stroke_width=16,
-                stroke_color="#FFFFFF",
-                background_color="#000000",
+                stroke_width=14,
+                stroke_color="#000000",
+                background_color="#FFFFFF",
                 height=300,
                 width=300,
                 drawing_mode="freedraw",
-                key="telugu_canvas",
+                key="telugu_white_canvas",
             )
             has_canvas = True
         except ImportError:
@@ -205,7 +226,7 @@ with tab_draw:
         input_image = None
         if has_canvas and canvas_result is not None and canvas_result.image_data is not None:
             raw_data = canvas_result.image_data
-            if np.max(raw_data[:, :, :3]) > 10:
+            if np.mean(raw_data[:, :, :3]) < 250 or np.any(raw_data[:, :, :3] < 100):
                 has_drawing = True
                 input_image = Image.fromarray(raw_data.astype("uint8")).convert("RGB")
                 
@@ -247,7 +268,7 @@ with tab_draw:
                 with col_r2:
                     st.progress(float(min(1.0, conf)), text=f"{conf*100:.1f}%")
         else:
-            st.info("Draw a Telugu character on the canvas on the left — results will update live!")
+            st.info("Draw a Telugu character on the canvas on the left — recognition updates automatically!")
 
 with tab_upload:
     st.markdown("#### 📁 Upload Handwritten Telugu Image:")
