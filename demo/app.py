@@ -171,7 +171,7 @@ st.markdown('<div class="sub-header">Deep Learning Character Recognition for 630
 
 # Sidebar
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Telugu_alphabet.png/320px-Telugu_alphabet.png", use_column_width=True)
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Telugu_alphabet.png/320px-Telugu_alphabet.png", use_container_width=True)
     st.markdown("### ⚙️ Model Information")
     if model:
         st.success(f"**Model Loaded:** `{Path(model_path).name}`")
