@@ -108,6 +108,7 @@ def load_hcr_model():
                 
     class_names = []
     class_map_paths = [
+        ROOT_DIR / "outputs/class_names.json",
         ROOT_DIR / "outputs/label_map.json",
         ROOT_DIR / "data_samples/class_names.json",
     ]
@@ -153,7 +154,7 @@ with st.sidebar:
         st.info(f"**Total Parameters:** `{model.count_params():,}`")
         st.info(f"**Classes:** `{len(class_names):,}` Telugu Characters")
     else:
-        st.warning("Running in Demo Mode (Upload model checkpoint to activate live weights).")
+        st.warning("Running in Demo Mode.")
         
     st.markdown("---")
     st.markdown("### 📊 Benchmark Metrics")
@@ -182,7 +183,7 @@ with tab_draw:
             
             canvas_result = st_canvas(
                 fill_color="rgba(255, 255, 255, 0.0)",
-                stroke_width=14,
+                stroke_width=16,
                 stroke_color="#FFFFFF",
                 background_color="#000000",
                 height=300,
@@ -195,34 +196,26 @@ with tab_draw:
             has_canvas = False
             st.warning("Install `streamlit-drawable-canvas` for interactive drawing.")
             
-        use_tta = st.checkbox("Enable Test-Time Augmentation (TTA Multi-View)", value=True)
-        predict_btn = st.button("🚀 Recognize Character", type="primary", use_container_width=True)
+        predict_btn = st.button("🚀 Recognize Character", type="primary", width="stretch")
 
     with col_results:
         st.markdown("#### 🎯 Recognition Results:")
         
+        has_drawing = False
         input_image = None
-        if has_canvas and canvas_result.image_data is not None:
-            if np.any(canvas_result.image_data[:, :, :3] > 0):
-                input_image = Image.fromarray(canvas_result.image_data.astype("uint8")).convert("RGB")
+        if has_canvas and canvas_result is not None and canvas_result.image_data is not None:
+            raw_data = canvas_result.image_data
+            if np.max(raw_data[:, :, :3]) > 10:
+                has_drawing = True
+                input_image = Image.fromarray(raw_data.astype("uint8")).convert("RGB")
                 
-        if (predict_btn or input_image is not None) and input_image is not None:
+        if has_drawing and input_image is not None:
             tensor_in, preproc_img = preprocess_canvas_image(input_image, img_size=96)
             
             if model is not None:
                 if len(model.input_shape) == 4 and model.input_shape[-1] == 3:
                     tensor_in = np.repeat(tensor_in, 3, axis=-1)
-                    
                 preds = model.predict(tensor_in, verbose=0)[0]
-                
-                if use_tta:
-                    for angle in [-6, 6]:
-                        rot_img = preproc_img.rotate(angle)
-                        t_rot = np.expand_dims(np.expand_dims(np.array(rot_img, dtype=np.float32) / 255.0, -1), 0)
-                        if len(model.input_shape) == 4 and model.input_shape[-1] == 3:
-                            t_rot = np.repeat(t_rot, 3, axis=-1)
-                        preds += model.predict(t_rot, verbose=0)[0]
-                    preds /= 3.0
             else:
                 preds = np.zeros(len(class_names))
                 preds[0] = 0.88
@@ -248,13 +241,13 @@ with tab_draw:
                 glyph, desc, cat = map_class_to_telugu(c_name)
                 conf = preds[idx]
                 
-                col_r1, col_r2 = st.columns([1, 4])
+                col_r1, col_r2 = st.columns([1.2, 3.8])
                 with col_r1:
                     st.markdown(f"**#{rank} &nbsp; `{glyph}`** ({desc})")
                 with col_r2:
                     st.progress(float(min(1.0, conf)), text=f"{conf*100:.1f}%")
         else:
-            st.info("Draw a Telugu character on the canvas and click **Recognize Character**.")
+            st.info("Draw a Telugu character on the canvas on the left — results will update live!")
 
 with tab_upload:
     st.markdown("#### 📁 Upload Handwritten Telugu Image:")
@@ -310,7 +303,7 @@ with tab_explorer:
         if search_q.lower() in cls.lower() or search_q in glyph or search_q.lower() in desc.lower():
             explorer_items.append({"Class ID": cls, "Telugu Glyph": glyph, "Description": desc, "Category": cat})
             
-    st.dataframe(explorer_items, use_container_width=True, height=450)
+    st.dataframe(explorer_items, width="stretch", height=450)
 
 with tab_metrics:
     st.markdown("#### 📊 System Architecture & Performance Metrics")
@@ -332,5 +325,4 @@ with tab_metrics:
     - **Input Representation:** 96×96 Grayscale normalized tensors with dynamic augmentation.
     - **Model Architecture:** Custom 80-Layer ResNet CNN with Residual Conv Blocks, Batch Normalization, and Dropout.
     - **Optimization:** AdamW optimizer with Warmup Cosine Learning Rate Decay and Label Smoothing (`0.05`).
-    - **Test-Time Augmentation (TTA):** 5-view multi-pass test augmentation for robust inference under handwriting stroke variations.
     """)
