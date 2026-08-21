@@ -21,18 +21,18 @@ def numpy_canonical_preprocess(
     img_input: Union[Image.Image, np.ndarray],
     img_size: int = 96,
     num_channels: int = 1,
-    fill_ratio: float = 0.70,
+    fill_ratio: float = 0.55,
 ) -> Tuple[np.ndarray, Image.Image]:
     """NumPy / OpenCV canonical preprocessor for live inference.
     
-    1. Grayscale conversion.
-    2. Background color normalization (ensures white background 255, dark ink 0).
-    3. Content bounding box extraction & centering (if drawing on large canvas).
-    4. Proportional scaling & pad to square.
+    1. Grayscale conversion and alpha channel blending with white background.
+    2. Background color normalization (ensures white background ~245-255, dark ink).
+    3. Content bounding box extraction & centering with natural 55% frame fill matching training data.
+    4. Anti-aliased area resizing and ink density calibration.
     5. Float32 normalization in [0.0, 1.0].
     
     Returns:
-        tensor: np.ndarray of shape (1, img_size, img_size, num_channels), float32.
+        tensor: np.ndarray of shape (1, img_size, img_size, num_channels), float32 in [0, 1].
         display_img: PIL Image of the preprocessed image.
     """
     if isinstance(img_input, Image.Image):
@@ -57,13 +57,13 @@ def numpy_canonical_preprocess(
         else:
             img_gray = img_input.copy()
 
-    # Ensure white background (255) and dark ink (0)
+    # Ensure white background (~245-255) and dark ink
     if np.mean(img_gray) < 127:
         img_gray = 255 - img_gray
 
     h, w = img_gray.shape[:2]
     
-    # If image is a large canvas with thin drawing, crop to bounding box and center
+    # If image is a large canvas drawing (e.g. 300x300 canvas), crop to bounding box and center at 55% fill
     if max(h, w) > 120 and _HAS_CV2:
         ink_mask = (img_gray < 210).astype(np.uint8) * 255
         if np.any(ink_mask > 0):
@@ -79,18 +79,15 @@ def numpy_canonical_preprocess(
             interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
             resized = cv2.resize(cropped, (nw, nh), interpolation=interp)
 
-            # Stroke width normalization for digital trackpad lines
-            ink_only = (resized < 210).astype(np.uint8) * 255
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            dilated = cv2.dilate(ink_only, kernel, iterations=1)
-            smoothed = cv2.GaussianBlur(dilated, (3, 3), 0.6)
+            # Soften high-contrast digital black (0) to natural ballpoint ink density (~110-160)
+            sim_ink = np.clip(246 - (255 - resized.astype(float)) * 0.65, 0, 255).astype(np.uint8)
 
-            canvas = np.full((img_size, img_size), 255, dtype=np.uint8)
+            canvas = np.full((img_size, img_size), 246, dtype=np.uint8)
             off_x = (img_size - nw) // 2
             off_y = (img_size - nh) // 2
-            canvas[off_y : off_y + nh, off_x : off_x + nw] = 255 - smoothed
+            canvas[off_y : off_y + nh, off_x : off_x + nw] = sim_ink
         else:
-            canvas = np.full((img_size, img_size), 255, dtype=np.uint8)
+            canvas = np.full((img_size, img_size), 246, dtype=np.uint8)
     else:
         # Standard dataset scan: pad to square and resize
         if h != w and _HAS_CV2:
@@ -104,12 +101,13 @@ def numpy_canonical_preprocess(
             padded = img_gray
 
         if _HAS_CV2:
-            interp = cv2.INTER_AREA if max(h, w) >= img_size else cv2.INTER_CUBIC
+            interp = cv2.INTER_AREA if max(h, w) >= img_size else cv2.INTER_LINEAR
             canvas = cv2.resize(padded, (img_size, img_size), interpolation=interp)
         else:
             canvas = np.array(Image.fromarray(padded).resize((img_size, img_size)))
 
     arr_norm = canvas.astype(np.float32) / 255.0
+    arr_norm = np.clip(arr_norm, 0.0, 1.0)
 
     if num_channels == 1:
         tensor = np.expand_dims(np.expand_dims(arr_norm, -1), 0)
@@ -161,15 +159,14 @@ def tf_canonical_preprocess(
     right = pad_w - left
     img_padded = tf.pad(img, [[top, bottom], [left, right], [0, 0]], mode="CONSTANT", constant_values=255)
 
-    # Resize — use bilinear for upscaling (no Gibbs ringing overshoot),
-    # area for downscaling (proper anti-aliasing).
+    # Resize using bilinear for upscaling and area for downscaling
     img_resized = tf.cond(
         max_dim > img_size,
         lambda: tf.image.resize(img_padded, [img_size, img_size], method="area"),
         lambda: tf.image.resize(img_padded, [img_size, img_size], method="bilinear"),
     )
 
-    # Clamp to valid [0, 255] range before normalization (interpolation can overshoot)
+    # Clamp to valid [0, 255] range
     img_resized = tf.clip_by_value(img_resized, 0.0, 255.0)
 
     if num_channels == 3:

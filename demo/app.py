@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
+import tensorflow as tf
 from PIL import Image, ImageOps, ImageFilter, ImageDraw, ImageFont
 import streamlit as st
 
@@ -221,7 +222,9 @@ def predict_character(model, tensor_in: np.ndarray) -> np.ndarray:
     elif len(model.input_shape) == 4 and model.input_shape[-1] == 1 and tensor_in.shape[-1] == 3:
         tensor_in = tensor_in[:, :, :, :1]
         
-    preds = model(tensor_in, training=False).numpy()[0]
+    with tf.device("/CPU:0"):
+        t_tensor = tf.convert_to_tensor(tensor_in, dtype=tf.float32)
+        preds = model(t_tensor, training=False).numpy()[0]
     return preds
 
 
@@ -374,35 +377,42 @@ with tab_draw:
                 
                 preds = predict_character(model, tensor_in)
                 
-                # 1. Primary Base Letter Aggregation (Hierarchical)
-                base_scores = {}
+                # 1. Primary Base Letter Aggregation (Hierarchical Root Letter)
+                root_scores = {}
+                root_best_subclass = {}
                 for i, p in enumerate(preds):
-                    base_glyph, base_desc = get_base_letter(class_names[i])
-                    base_scores[base_glyph] = base_scores.get(base_glyph, 0.0) + float(p)
+                    bg, bd = get_base_letter(class_names[i])
+                    root_scores[bg] = root_scores.get(bg, 0.0) + float(p)
+                    if bg not in root_best_subclass or float(p) > root_best_subclass[bg][1]:
+                        root_best_subclass[bg] = (class_names[i], float(p))
                     
-                sorted_bases = sorted(base_scores.items(), key=lambda x: x[1], reverse=True)[:3]
-                top_base_glyph, top_base_conf = sorted_bases[0]
+                sorted_roots = sorted(root_scores.items(), key=lambda x: x[1], reverse=True)[:3]
+                top_base_glyph, top_base_conf = sorted_roots[0]
                 
-                # 2. Exact 630 Diacritic Candidates
+                # 2. Winning Root's Best Diacritic Subclass
+                best_sub_cls, best_sub_prob = root_best_subclass[top_base_glyph]
+                best_glyph, best_desc, best_cat = map_class_to_telugu(best_sub_cls)
+                
+                # 3. Global Top Candidates for Detailed Debug View
                 top_indices = np.argsort(preds)[::-1][:5]
                 top1_cls = class_names[top_indices[0]]
-                top1_glyph, top1_desc, top1_cat = map_class_to_telugu(top1_cls)
-                top1_conf = preds[top_indices[0]] * 100
                 
                 st.markdown(f"""
                 <div class="glyph-box">
-                    <div style="font-size: 1.1rem; color: #166534; font-weight: 600; text-transform: uppercase;">Identified Base Letter:</div>
-                    <div class="telugu-glyph">{top_base_glyph}</div>
-                    <div class="glyph-name">Root Letter Confidence: {top_base_conf*100:.1f}%</div>
-                    <div class="glyph-category">Exact Diacritic Form: {top1_glyph} ({top1_desc}) • {top1_conf:.1f}%</div>
+                    <div style="font-size: 1.1rem; color: #166534; font-weight: 600; text-transform: uppercase;">Identified Telugu Character:</div>
+                    <div class="telugu-glyph">{best_glyph}</div>
+                    <div class="glyph-name">Root Letter: {top_base_glyph} ({best_desc}) • {top_base_conf*100:.1f}% Confidence</div>
+                    <div class="glyph-category">Category: {best_cat}</div>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 st.markdown("##### 🏆 Primary Letter Candidates (Top-3):")
-                for rank, (bglyph, bconf) in enumerate(sorted_bases, 1):
-                    col_b1, col_b2 = st.columns([1.2, 3.8])
+                for rank, (bglyph, bconf) in enumerate(sorted_roots, 1):
+                    sub_c, _ = root_best_subclass[bglyph]
+                    sub_g, sub_d, _ = map_class_to_telugu(sub_c)
+                    col_b1, col_b2 = st.columns([1.5, 3.5])
                     with col_b1:
-                        st.markdown(f"**#{rank} &nbsp; `{bglyph}`**")
+                        st.markdown(f"**#{rank} &nbsp; `{sub_g}`** ({bglyph})")
                     with col_b2:
                         st.progress(float(min(1.0, bconf)), text=f"{bconf*100:.1f}%")
                         
