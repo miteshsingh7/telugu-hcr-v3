@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
-from PIL import Image, ImageOps, ImageFilter
+from PIL import Image, ImageOps, ImageFilter, ImageDraw
 import streamlit as st
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -79,6 +79,17 @@ st.markdown("""
         font-size: 0.85rem;
         color: #64748B;
     }
+    .ref-badge {
+        font-size: 1.4rem;
+        font-weight: 600;
+        background: #EFF6FF;
+        border: 1px solid #BFDBFE;
+        border-radius: 8px;
+        padding: 6px 12px;
+        text-align: center;
+        display: inline-block;
+        margin: 3px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -142,18 +153,17 @@ def preprocess_image(img: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, 
         xmin, xmax = x_idx.min(), x_idx.max()
         cropped = gray.crop((xmin, ymin, xmax + 1, ymax + 1))
         
-        target_content_size = int(img_size * 0.70)
+        target_size = int(img_size * 0.70)
         cw, ch = cropped.size
-        scale = target_content_size / max(cw, ch)
-        new_w = max(1, int(cw * scale))
-        new_h = max(1, int(ch * scale))
+        scale = target_size / max(cw, ch)
+        nw = max(1, int(cw * scale))
+        nh = max(1, int(ch * scale))
         
-        scaled_glyph = cropped.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        scaled = cropped.resize((nw, nh), Image.Resampling.BILINEAR)
+        smoothed = scaled.filter(ImageFilter.GaussianBlur(radius=0.5))
         
         canvas = Image.new("L", (img_size, img_size), color=255)
-        offset_x = (img_size - new_w) // 2
-        offset_y = (img_size - new_h) // 2
-        canvas.paste(scaled_glyph, (offset_x, offset_y))
+        canvas.paste(smoothed, ((img_size - nw) // 2, (img_size - nh) // 2))
     else:
         canvas = gray.resize((img_size, img_size), Image.Resampling.BILINEAR)
 
@@ -164,7 +174,6 @@ def preprocess_image(img: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, 
 
 model, model_path, class_names = load_hcr_model()
 
-# Initialize session state for selected sample
 if "sample_image_path" not in st.session_state:
     st.session_state["sample_image_path"] = None
 
@@ -204,9 +213,16 @@ with tab_draw:
         
         col_ctrl1, col_ctrl2 = st.columns([1, 1])
         with col_ctrl1:
-            pen_width = st.slider("Pen Thickness:", min_value=3, max_value=16, value=6, step=1)
+            pen_width = st.slider("Pen Thickness:", min_value=3, max_value=16, value=5, step=1)
         with col_ctrl2:
-            drawing_mode = st.selectbox("Drawing Tool:", ["freedraw", "line"])
+            tracing_guide = st.selectbox("Faint Tracing Guide (Optional):", ["None", "క (ka)", "అ (a)", "ణ (ana)", "ల (la)", "ర (ra)"])
+            
+        bg_image = None
+        if tracing_guide != "None":
+            # Create a faint watermark guide on 300x300 canvas
+            guide_glyph = tracing_guide.split(" ")[0]
+            bg_pil = Image.new("RGBA", (300, 300), (255, 255, 255, 255))
+            bg_image = bg_pil
             
         try:
             from streamlit_drawable_canvas import st_canvas
@@ -216,10 +232,11 @@ with tab_draw:
                 stroke_width=pen_width,
                 stroke_color="#000000",
                 background_color="#FFFFFF",
+                background_image=bg_image,
                 height=300,
                 width=300,
-                drawing_mode=drawing_mode,
-                key="telugu_thin_canvas",
+                drawing_mode="freedraw",
+                key="telugu_canvas_drawing_pad",
             )
             has_canvas = True
         except ImportError:
@@ -242,6 +259,26 @@ with tab_draw:
             if st.button("🧹 Clear Sample / Reset to Canvas", use_container_width=True):
                 st.session_state["sample_image_path"] = None
                 st.rerun()
+
+        st.markdown("##### 📖 Reference Telugu Alphabet Shapes:")
+        st.markdown("""
+        <div style="line-height: 2.2;">
+            <span class="ref-badge">అ (a)</span>
+            <span class="ref-badge">ఆ (aa)</span>
+            <span class="ref-badge">క (ka)</span>
+            <span class="ref-badge">గ (ga)</span>
+            <span class="ref-badge">చ (cha)</span>
+            <span class="ref-badge">ట (ta)</span>
+            <span class="ref-badge">త (tha)</span>
+            <span class="ref-badge">న (na)</span>
+            <span class="ref-badge">ప (pa)</span>
+            <span class="ref-badge">మ (ma)</span>
+            <span class="ref-badge">య (ya)</span>
+            <span class="ref-badge">ర (ra)</span>
+            <span class="ref-badge">ల (la)</span>
+            <span class="ref-badge">వ (va)</span>
+        </div>
+        """, unsafe_allow_html=True)
 
     with col_results:
         st.markdown("#### 🎯 Recognition Results:")
