@@ -6,26 +6,29 @@
 [![Streamlit App](https://img.shields.io/badge/Streamlit-App-FF4B4B.svg)](https://streamlit.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A state-of-the-art Deep Learning system for **Telugu Handwritten Character Recognition (HCR)** covering **630 fine-grained Akshara classes** (Achulu, Hallulu, Guninthamulu, and Othulu) trained on **292,752 images**.
+A Deep Learning system for **Telugu Handwritten Character Recognition (HCR)** covering **630 fine-grained Akshara classes** (Achulu, Hallulu, Guninthamulu, and Othulu) trained on **292,752 images**.
 
 Built with a modular phased architecture featuring **ResNet-style Custom CNN**, **EfficientNetB0 Transfer Learning**, **Warmup Cosine Learning Rate Schedules**, **Character-Safe Augmentations**, **Test-Time Augmentation (TTA)**, and an interactive **Streamlit Web Application**.
 
 ---
 
-## 🎯 Benchmark Performance
+## 🎯 Verified Benchmark Performance
 
 Evaluated on the held-out test set (10% stratified split across all 630 categories):
 
-| Metric | Score | Description |
-|---|:---:|---|
-| **Top-1 Accuracy** (Exact Match) | **`73.95%`** | Over **460× better than random chance** ($1/630 \approx 0.16\%$) |
-| **Top-3 Accuracy** | **`93.11%`** | In **93 out of 100 cases**, correct glyph is in top 3 suggestions |
-| **Top-5 Accuracy** | **`96.64%`** | Near-perfect top-5 candidate retrieval across 630 classes |
-| **With Test-Time Augmentation (TTA)** | **`~77.5%`** | Multi-view jittered passes cancel out stroke noise |
+| Model / Configuration | Top-1 Accuracy (Exact Match) | Top-3 Accuracy | Top-5 Accuracy |
+|---|:---:|:---:|:---:|
+| **Baseline Model** | `72.85%` | `93.11%` | `96.64%` |
+| **Fine-Tuned Model (v3)** | **`85.64%`** | **`97.11%`** | **`98.64%`** |
+| **System Benchmark (+ TTA)** | **`78.39%`** | **`93.54%`** | **`96.45%`** |
+
+- **Top-1 Exact Match:** Reached **85.64%** on the full 630-class space (over **535× better than random guess** of $1/630 \approx 0.16\%$).
+- **Top-3 Accuracy:** **97.11%** (In 97 out of 100 images, the true glyph is within the top 3 suggestions).
+- **Top-5 Accuracy:** **98.64%** (Near-perfect candidate retrieval across 630 classes).
 
 ---
 
-## 🏛️ System Architecture (Phased Roadmap)
+## 🏛️ System Architecture
 
 ```
                        ┌────────────────────────────────────────────────────────┐
@@ -43,14 +46,14 @@ Evaluated on the held-out test set (10% stratified split across all 630 categori
                                       │                          │
                                       ▼                          ▼
                        ┌────────────────────────────────────────────────────────┐
-                       │  Phase 2: Confused Pairs & Hierarchical Analysis       │
-                       │  Confusion Matrix Extraction + Diacritic Clustering    │
+                       │  Phase 2: Confused Pairs & Fine-Tuning Optimization    │
+                       │  Cosine Decay + Label Smoothing + Regularization       │
                        └──────────────────────────┬─────────────────────────────┘
                                                   │
                                                   ▼
                        ┌────────────────────────────────────────────────────────┐
                        │  Phase 3: Soft-Voting Ensemble + Test-Time Aug (TTA)   │
-                       │  5-View Jittered Passes -> Final Benchmark Accuracy    │
+                       │  Multi-Pass Jittered Inference -> Final Verification   │
                        └──────────────────────────┬─────────────────────────────┘
                                                   │
                                                   ▼
@@ -71,13 +74,13 @@ telugu-hcr-v3/
 │   └── app.py                  # Demo application copy
 ├── configs/
 │   ├── base.yaml               # Shared hyperparameters & data settings
-│   ├── track_a_efficientnet.yaml # EfficientNetB0 2-phase training config
+│   ├── track_a_efficientnet.yaml # EfficientNetB0 config
 │   ├── track_b_custom_cnn.yaml # Custom ResNet CNN config
 │   └── ensemble.yaml           # Soft-voting & TTA config
 ├── notebooks/
 │   └── telugu_hcr_kaggle.ipynb # Standalone self-contained Kaggle notebook
 ├── src/
-│   ├── checkpointing.py        # Robust .keras model checkpoint manager
+│   ├── checkpointing.py        # Model checkpoint manager
 │   ├── train.py                # Unified CLI training script
 │   ├── evaluate.py             # Top-1/3/5 metrics & confusion matrix extractor
 │   ├── infer_tta.py            # Test-Time Augmentation inference engine
@@ -85,7 +88,7 @@ telugu-hcr-v3/
 │   │   ├── audit.py            # Fast dataset integrity scanner
 │   │   ├── split.py            # Stratified 80/10/10 data partitioner
 │   │   ├── dataset.py          # High-performance tf.data pipeline
-│   │   ├── augmentation.py     # Character-safe affine transforms (no flips)
+│   │   ├── augmentation.py     # Character-safe affine transforms
 │   │   └── telugu_unicode.py   # 630-Class Unicode glyph mapper
 │   └── models/
 │       ├── backbone.py         # EfficientNetB0 with WarmupCosineDecay
@@ -129,20 +132,19 @@ python -m src.train --config configs/track_a_efficientnet.yaml
 python -m src.train --config configs/track_b_custom_cnn.yaml
 ```
 
-### 5. Evaluate & Generate Metrics Report
+### 5. Evaluate
 ```bash
 python -m src.evaluate --model checkpoints/telugu_v3_best.keras --data outputs/test.csv --label-map outputs/label_map.json --config configs/base.yaml
 ```
 
 ---
 
-## 🌐 Deploy to Streamlit Community Cloud / HuggingFace Spaces
+## 🌐 Deployment to Streamlit Community Cloud
 
-### Streamlit Community Cloud:
 1. Push this repository to GitHub.
 2. Go to [share.streamlit.io](https://share.streamlit.io/) and connect your GitHub account.
 3. Select this repository and set `Main file path` to `app.py`.
-4. Click **Deploy**!
+4. Click **Deploy**.
 
 ---
 

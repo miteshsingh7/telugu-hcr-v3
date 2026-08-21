@@ -1,11 +1,3 @@
-"""Telugu Unicode and Romanized Character Mapper.
-
-Maps 630 raw class names (e.g. 'Guninthamulu__RR__RRA', 'achulu__aa') to:
-  1. Telugu Unicode Script Glyphs (e.g. 'ఱా', 'ఆ', 'క')
-  2. Human-readable Romanized Names (e.g. 'RRA', 'AA', 'KA')
-  3. Grammatical Category (Achulu, Hallulu, Guninthamulu, Othulu)
-"""
-
 from typing import Tuple, Dict
 
 VOWELS = {
@@ -31,36 +23,27 @@ VOWEL_SIGNS = {
     "e1": "ె", "e2": "ే", "ai": "ై", "o1": "ొ", "o2": "ో", "au": "ౌ", "am": "ం", "ah": "ః"
 }
 
-
 def map_class_to_telugu(cls_name: str) -> Tuple[str, str, str]:
-    """Maps a raw class name to (Telugu Unicode Glyph, Romanized Description, Category).
-    
-    Args:
-        cls_name: Raw class name, e.g. 'Guninthamulu__RR__RRA' or 'achulu__aa'.
-        
-    Returns:
-        tuple of (unicode_glyph, description, category_name)
-    """
     clean_cls = cls_name.replace("/", "__")
     parts = clean_cls.split("__")
     category = parts[0].capitalize()
-    
+
     if category.lower() == "achulu":
         v = parts[1] if len(parts) > 1 else ""
         glyph = VOWELS.get(v.lower(), "అ")
         return glyph, f"Vowel ({v})", "Achulu (Vowels)"
-        
+
     elif category.lower() == "hallulu":
         c = parts[1] if len(parts) > 1 else ""
         glyph = CONSONANTS.get(c, CONSONANTS.get(c.lower(), "క"))
         return glyph, f"Consonant ({c})", "Hallulu (Consonants)"
-        
+
     elif category.lower() == "othulu":
         c = parts[1] if len(parts) > 1 else ""
         base = CONSONANTS.get(c, CONSONANTS.get(c.lower(), "క"))
         glyph = f"్{base}"
         return glyph, f"Conjunct Mark ({c})", "Othulu (Conjuncts)"
-        
+
     elif category.lower() == "guninthamulu":
         c = parts[1] if len(parts) > 1 else "ka"
         v = parts[2] if len(parts) > 2 else "a"
@@ -68,5 +51,5 @@ def map_class_to_telugu(cls_name: str) -> Tuple[str, str, str]:
         sign = VOWEL_SIGNS.get(v.lower(), VOWEL_SIGNS.get(v, ""))
         glyph = f"{base}{sign}"
         return glyph, f"Modified Form ({c} + {v})", "Guninthamulu (Consonant+Vowel)"
-        
+
     return cls_name, cls_name, "Other"
