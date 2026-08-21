@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFilter
 import streamlit as st
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -135,31 +135,31 @@ def preprocess_canvas_image(img: Image.Image, img_size: int = 96) -> Tuple[np.nd
         gray = ImageOps.invert(gray)
         arr = np.array(gray)
         
-    dark_mask = arr < 220
-    if np.any(dark_mask):
-        y_indices, x_indices = np.where(dark_mask)
-        ymin, ymax = np.min(y_indices), np.max(y_indices)
-        xmin, xmax = np.min(x_indices), np.max(x_indices)
+    ink = arr < 220
+    if np.any(ink):
+        y_idx, x_idx = np.where(ink)
+        ymin, ymax = y_idx.min(), y_idx.max()
+        xmin, xmax = x_idx.min(), x_idx.max()
+        cropped = gray.crop((xmin, ymin, xmax + 1, ymax + 1))
         
-        pad = int(max(ymax - ymin, xmax - xmin) * 0.15)
-        ymin = max(0, ymin - pad)
-        ymax = min(arr.shape[0], ymax + pad)
-        xmin = max(0, xmin - pad)
-        xmax = min(arr.shape[1], xmax + pad)
+        target_content_size = int(img_size * 0.70)
+        cw, ch = cropped.size
+        scale = target_content_size / max(cw, ch)
+        new_w = max(1, int(cw * scale))
+        new_h = max(1, int(ch * scale))
         
-        cropped = gray.crop((xmin, ymin, xmax, ymax))
+        scaled_glyph = cropped.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        
+        canvas = Image.new("L", (img_size, img_size), color=255)
+        offset_x = (img_size - new_w) // 2
+        offset_y = (img_size - new_h) // 2
+        canvas.paste(scaled_glyph, (offset_x, offset_y))
     else:
-        cropped = gray
+        canvas = gray.resize((img_size, img_size), Image.Resampling.BILINEAR)
 
-    w, h = cropped.size
-    target_square = max(w, h)
-    square_img = Image.new("L", (target_square, target_square), color=255)
-    square_img.paste(cropped, ((target_square - w) // 2, (target_square - h) // 2))
-    
-    final_img = square_img.resize((img_size, img_size), Image.Resampling.BILINEAR)
-    arr_norm = np.array(final_img, dtype=np.float32) / 255.0
+    arr_norm = np.array(canvas, dtype=np.float32) / 255.0
     tensor = np.expand_dims(np.expand_dims(arr_norm, -1), 0)
-    return tensor, final_img
+    return tensor, canvas
 
 
 model, model_path, class_names = load_hcr_model()
@@ -197,34 +197,54 @@ with tab_draw:
     
     with col_canvas:
         st.markdown("#### 🖌️ Draw a Telugu Character:")
-        st.caption("Draw any character in black on the white canvas below:")
         
+        col_ctrl1, col_ctrl2 = st.columns([1, 1])
+        with col_ctrl1:
+            pen_width = st.slider("Pen Thickness:", min_value=3, max_value=16, value=6, step=1)
+        with col_ctrl2:
+            drawing_mode = st.selectbox("Drawing Tool:", ["freedraw", "line"])
+            
         try:
             from streamlit_drawable_canvas import st_canvas
             
             canvas_result = st_canvas(
                 fill_color="rgba(255, 255, 255, 0.0)",
-                stroke_width=14,
+                stroke_width=pen_width,
                 stroke_color="#000000",
                 background_color="#FFFFFF",
                 height=300,
                 width=300,
-                drawing_mode="freedraw",
-                key="telugu_white_canvas",
+                drawing_mode=drawing_mode,
+                key="telugu_thin_canvas",
             )
             has_canvas = True
         except ImportError:
             has_canvas = False
             st.warning("Install `streamlit-drawable-canvas` for interactive drawing.")
             
-        predict_btn = st.button("🚀 Recognize Character", type="primary", width="stretch")
+        st.markdown("##### 💡 Try Example Samples:")
+        col_s1, col_s2, col_s3 = st.columns(3)
+        load_sample = None
+        with col_s1:
+            if st.button("Sample: క (ka)", use_container_width=True):
+                load_sample = ROOT_DIR / "data_samples/telugu_image_samples/hallulu/ka/1.png"
+        with col_s2:
+            if st.button("Sample: అ (a)", use_container_width=True):
+                load_sample = ROOT_DIR / "data_samples/telugu_image_samples/achulu/a/1.jpg"
+        with col_s3:
+            if st.button("Sample: ణ (ana)", use_container_width=True):
+                load_sample = ROOT_DIR / "data_samples/telugu_image_samples/hallulu/ana/1.jpg"
 
     with col_results:
         st.markdown("#### 🎯 Recognition Results:")
         
         has_drawing = False
         input_image = None
-        if has_canvas and canvas_result is not None and canvas_result.image_data is not None:
+        
+        if load_sample and Path(load_sample).exists():
+            input_image = Image.open(load_sample)
+            has_drawing = True
+        elif has_canvas and canvas_result is not None and canvas_result.image_data is not None:
             raw_data = canvas_result.image_data
             if np.mean(raw_data[:, :, :3]) < 250 or np.any(raw_data[:, :, :3] < 100):
                 has_drawing = True
@@ -267,8 +287,11 @@ with tab_draw:
                     st.markdown(f"**#{rank} &nbsp; `{glyph}`** ({desc})")
                 with col_r2:
                     st.progress(float(min(1.0, conf)), text=f"{conf*100:.1f}%")
+                    
+            with st.expander("🔍 Preprocessed 96×96 Input View"):
+                st.image(preproc_img, caption="What the Neural Network sees", width=120)
         else:
-            st.info("Draw a Telugu character on the canvas on the left — recognition updates automatically!")
+            st.info("Draw a Telugu character on the canvas or click a sample above!")
 
 with tab_upload:
     st.markdown("#### 📁 Upload Handwritten Telugu Image:")
