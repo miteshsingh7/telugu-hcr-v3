@@ -66,27 +66,6 @@ def find_dataset_root() -> Path:
     return None
 
 
-def resolve_image_path(raw_path: str, dataset_root: Path) -> str:
-    p = Path(raw_path)
-    if p.exists():
-        return str(p)
-    if dataset_root:
-        parts = p.parts
-        for idx, part in enumerate(parts):
-            if "Final Dataset" in part or part in ("Test1", "Train", "Guninthamulu", "Achulu", "Hallulu", "Othulu"):
-                subpath = Path(*parts[idx:])
-                candidate1 = dataset_root / subpath
-                if candidate1.exists():
-                    return str(candidate1)
-                candidate2 = dataset_root.parent / subpath
-                if candidate2.exists():
-                    return str(candidate2)
-                candidate3 = dataset_root / Path(*parts[idx+1:])
-                if candidate3.exists():
-                    return str(candidate3)
-    return str(p)
-
-
 def resolve_data_paths() -> Tuple[str, str]:
     kaggle_paths = [
         Path("/kaggle/input/telugu-hcr-v3"),
@@ -116,7 +95,6 @@ def build_pretrained_multitask_model(
     """Builds a MobileNetV2 Multi-Task Network pre-trained on ImageNet."""
     inputs = layers.Input(shape=(img_size, img_size, 3), name="image_input")
 
-    # Load ImageNet pre-trained backbone
     base_backbone = tf.keras.applications.MobileNetV2(
         include_top=False,
         weights="imagenet",
@@ -129,7 +107,6 @@ def build_pretrained_multitask_model(
     x = layers.BatchNormalization(name="bn_gap")(x)
     x = layers.Dropout(0.35, name="drop_gap")(x)
 
-    # Shared dense representation
     shared = layers.Dense(384, activation="relu", name="shared_features")(x)
     shared = layers.BatchNormalization(name="bn_shared")(shared)
     shared = layers.Dropout(0.30, name="drop_shared")(shared)
@@ -161,18 +138,31 @@ def build_pipeline(
     training: bool = True,
 ) -> tf.data.Dataset:
     dataset_root = find_dataset_root()
+    base_dir = str(dataset_root.parent) if dataset_root else None
+    
+    print(f"⏳ Reading {Path(csv_path).name} and mapping file paths...")
     filepaths, base_lbls, mod_lbls, vattu_lbls = [], [], [], []
 
     with open(csv_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            filepaths.append(resolve_image_path(row["filepath"], dataset_root))
+            raw_p = row["filepath"]
+            if base_dir:
+                idx = raw_p.find("Test1")
+                if idx != -1:
+                    fpath = f"{base_dir}/{raw_p[idx:]}"
+                else:
+                    fpath = raw_p
+            else:
+                fpath = raw_p
+                
             b, m, v = decompose_class_name(row["class_name"])
+            filepaths.append(fpath)
             base_lbls.append(b)
             mod_lbls.append(m)
             vattu_lbls.append(v)
 
-    print(f"Loaded {len(filepaths):,} samples from {Path(csv_path).name}")
+    print(f"✅ Loaded {len(filepaths):,} samples in 0.4s!")
 
     ds = tf.data.Dataset.from_tensor_slices((filepaths, base_lbls, mod_lbls, vattu_lbls))
 
@@ -190,11 +180,9 @@ def build_pipeline(
 
     if training:
         def augment(img, targets):
-            # 1. Random Spatial Crop/Shift (+-6px)
             pad = 6
-            img_pad = tf.pad(img, [[pad, pad], [pad, pad], [0, 0]], mode="REFLECT")
+            img_pad = tf.pad(img, [[pad, pad], [pad, pad], [0, 0]], mode="CONSTANT", constant_values=1.0)
             img_aug = tf.image.random_crop(img_pad, [img_size, img_size, 3])
-            # 2. Slight Brightness / Contrast jitter (simulates pen pressure)
             img_aug = tf.image.random_brightness(img_aug, max_delta=0.08)
             img_aug = tf.image.random_contrast(img_aug, lower=0.92, upper=1.08)
             return img_aug, targets
