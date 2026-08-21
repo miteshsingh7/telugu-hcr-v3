@@ -5,6 +5,7 @@ import hashlib
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import cv2
 import numpy as np
 from PIL import Image, ImageOps, ImageFilter
 import streamlit as st
@@ -21,7 +22,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from src.data.telugu_unicode import map_class_to_telugu
+from src.data.telugu_unicode import map_class_to_telugu, CONSONANTS, VOWELS
 
 st.set_page_config(
     page_title="Telugu Handwritten Character Recognizer (v3)",
@@ -47,12 +48,12 @@ st.markdown("""
         background: linear-gradient(135deg, #F0FDF4, #DCFCE7);
         border: 2px solid #86EFAC;
         border-radius: 12px;
-        padding: 24px;
+        padding: 20px;
         text-align: center;
         margin-bottom: 15px;
     }
     .telugu-glyph {
-        font-size: 5.5rem;
+        font-size: 5rem;
         font-weight: bold;
         color: #15803D;
         line-height: 1.1;
@@ -61,7 +62,7 @@ st.markdown("""
         font-size: 1.3rem;
         font-weight: 600;
         color: #1F2937;
-        margin-top: 8px;
+        margin-top: 6px;
     }
     .glyph-category {
         font-size: 0.95rem;
@@ -149,33 +150,36 @@ def preprocess_image(img: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, 
     arr = np.array(gray)
     
     if np.mean(arr) < 127:
-        gray = ImageOps.invert(gray)
-        arr = np.array(gray)
+        arr = 255 - arr
         
-    ink = arr < 220
-    if np.any(ink):
-        y_idx, x_idx = np.where(ink)
-        ymin, ymax = y_idx.min(), y_idx.max()
-        xmin, xmax = x_idx.min(), x_idx.max()
-        cropped = gray.crop((xmin, ymin, xmax + 1, ymax + 1))
+    ink_mask = (arr < 220).astype(np.uint8) * 255
+    
+    if np.any(ink_mask > 0):
+        coords = cv2.findNonZero(ink_mask)
+        x, y, w, h = cv2.boundingRect(coords)
+        cropped = ink_mask[y:y+h, x:x+w]
         
         target_size = int(img_size * 0.70)
-        cw, ch = cropped.size
-        scale = target_size / max(cw, ch)
-        nw = max(1, int(cw * scale))
-        nh = max(1, int(ch * scale))
+        scale = target_size / max(w, h)
+        new_w = max(2, int(w * scale))
+        new_h = max(2, int(h * scale))
         
-        scaled = cropped.resize((nw, nh), Image.Resampling.BILINEAR)
-        smoothed = scaled.filter(ImageFilter.GaussianBlur(radius=0.5))
+        resized_ink = cv2.resize(cropped, (new_w, new_h), interpolation=cv2.INTER_AREA)
         
-        canvas = Image.new("L", (img_size, img_size), color=255)
-        canvas.paste(smoothed, ((img_size - nw) // 2, (img_size - nh) // 2))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        dilated_ink = cv2.dilate(resized_ink, kernel, iterations=1)
+        blurred_ink = cv2.GaussianBlur(dilated_ink, (3, 3), 0.8)
+        
+        final_canvas = np.full((img_size, img_size), 255, dtype=np.uint8)
+        off_x = (img_size - new_w) // 2
+        off_y = (img_size - new_h) // 2
+        final_canvas[off_y:off_y+new_h, off_x:off_x+new_w] = 255 - blurred_ink
     else:
-        canvas = gray.resize((img_size, img_size), Image.Resampling.BILINEAR)
-
-    arr_norm = np.array(canvas, dtype=np.float32) / 255.0
+        final_canvas = np.full((img_size, img_size), 255, dtype=np.uint8)
+        
+    arr_norm = final_canvas.astype(np.float32) / 255.0
     tensor = np.expand_dims(np.expand_dims(arr_norm, -1), 0)
-    return tensor, canvas
+    return tensor, Image.fromarray(final_canvas)
 
 
 def predict_character(model, tensor_in: np.ndarray) -> np.ndarray:
@@ -191,6 +195,19 @@ def predict_character(model, tensor_in: np.ndarray) -> np.ndarray:
         
     preds = model(tensor_in, training=False).numpy()[0]
     return preds
+
+
+def extract_root_grapheme(class_name: str) -> Tuple[str, str]:
+    parts = class_name.replace("/", "__").split("__")
+    category = parts[0].lower()
+    if category == "achulu":
+        v = parts[1] if len(parts) > 1 else "a"
+        glyph = VOWELS.get(v.lower(), "అ")
+        return glyph, f"Vowel '{v}'"
+    else:
+        c = parts[1] if len(parts) > 1 else "ka"
+        glyph = CONSONANTS.get(c, CONSONANTS.get(c.lower(), "క"))
+        return glyph, f"Consonant '{c}'"
 
 
 model, model_path, class_names = load_hcr_model()
@@ -235,8 +252,7 @@ with tab_draw:
     
     with col_canvas:
         st.markdown("#### 🖌️ Draw a Telugu Character:")
-        
-        pen_width = st.slider("Pen Thickness:", min_value=3, max_value=16, value=5, step=1)
+        pen_width = st.slider("Pen Thickness:", min_value=3, max_value=16, value=6, step=1)
             
         try:
             from streamlit_drawable_canvas import st_canvas
@@ -256,8 +272,6 @@ with tab_draw:
             has_canvas = False
             st.warning("Install `streamlit-drawable-canvas` for interactive drawing.")
             
-        recognize_btn = st.button("🚀 Recognize Character", type="primary", use_container_width=True)
-        
         if st.session_state.get("sample_image_path"):
             st.info(f"Viewing Sample: `{Path(st.session_state['sample_image_path']).name}`")
             if st.button("🧹 Clear Sample / Switch Back to Canvas", use_container_width=True):
@@ -305,15 +319,19 @@ with tab_draw:
             top1_glyph, top1_desc, top1_cat = map_class_to_telugu(top1_cls)
             top1_conf = preds[top_indices[0]] * 100
             
+            # Root Family Calculation
+            root_glyph, root_desc = extract_root_grapheme(top1_cls)
+            root_conf = sum(preds[i] for i in top_indices if extract_root_grapheme(class_names[i])[0] == root_glyph) * 100
+            
             st.markdown(f"""
             <div class="glyph-box">
                 <div class="telugu-glyph">{top1_glyph}</div>
                 <div class="glyph-name">{top1_desc}</div>
-                <div class="glyph-category">{top1_cat} • Confidence: {top1_conf:.1f}%</div>
+                <div class="glyph-category">{top1_cat} • Exact: {top1_conf:.1f}% | Root Family: {root_conf:.1f}%</div>
             </div>
             """, unsafe_allow_html=True)
             
-            st.markdown("##### 🏆 Top Candidates:")
+            st.markdown("##### 🏆 Top Candidate Glyphs:")
             for rank, idx in enumerate(top_indices, 1):
                 c_name = class_names[idx]
                 glyph, desc, cat = map_class_to_telugu(c_name)
@@ -326,7 +344,7 @@ with tab_draw:
                     st.progress(float(min(1.0, conf)), text=f"{conf*100:.1f}%")
                     
             with st.expander("🔍 Preprocessed 96×96 Input View"):
-                st.image(preproc_img, caption="What the Neural Network sees", width=120)
+                st.image(preproc_img, caption="Normalized Input fed into Neural Network", width=120)
         else:
             st.info("Draw a character on the canvas on the left or select a sample from the Visual Gallery!")
 
