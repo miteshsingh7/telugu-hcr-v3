@@ -1,0 +1,28 @@
+_base_: "base.yaml"
+
+experiment_name: "track_b_custom_cnn"
+model:
+  type: "custom_cnn"
+  num_channels: 1  # grayscale for custom CNN
+  conv_blocks:
+    - {filters: 32, kernel_size: 3}
+    - {filters: 64, kernel_size: 3}
+    - {filters: 128, kernel_size: 3}
+    - {filters: 128, kernel_size: 3}
+    - {filters: 256, kernel_size: 3}
+    - {filters: 256, kernel_size: 3}
+  head:
+    pool: "global_average"
+    dropout_1: 0.4
+    dense_units: 256
+    dropout_2: 0.3
+
+training:
+  epochs: 80
+  initial_lr: 1.0e-3
+  optimizer: "adamw"
+  weight_decay: 1.0e-4
+  warmup_epochs: 5
+  schedule: "cosine_decay"
+  early_stopping_patience: 10
+  class_weight: true

@@ -1,0 +1,14 @@
+tensorflow>=2.15.0
+numpy
+pandas
+scikit-learn
+matplotlib
+seaborn
+Pillow
+imagehash
+pyyaml
+tqdm
+tabulate
+streamlit>=1.30.0
+streamlit-drawable-canvas>=0.9.3
+gradio>=4.0.0

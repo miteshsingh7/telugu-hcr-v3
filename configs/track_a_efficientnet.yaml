@@ -1,0 +1,28 @@
+_base_: "base.yaml"
+
+experiment_name: "track_a_efficientnet"
+model:
+  type: "transfer"
+  backbone: "efficientnetb0"  # or "mobilenetv3large"
+  pretrained: true
+  freeze_backbone: true
+  unfreeze_fraction: 0.33  # unfreeze top 1/3 after head training
+  head:
+    pool: "global_average"
+    dropout_1: 0.3
+    dense_units: 512
+    dropout_2: 0.3
+
+training:
+  # Phase 1: Train head only
+  head_epochs: 8
+  head_lr: 1.0e-3
+  # Phase 2: Fine-tune backbone
+  finetune_epochs: 30
+  finetune_lr: 1.0e-4
+  optimizer: "adamw"
+  weight_decay: 1.0e-4
+  warmup_epochs: 5  # short bounded warmup
+  schedule: "cosine_decay"  # NO ReduceLROnPlateau
+  early_stopping_patience: 10
+  class_weight: true

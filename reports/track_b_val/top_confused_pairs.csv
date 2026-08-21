@@ -1,0 +1,4 @@
+class_a,class_b,count_a_pred_as_b,count_b_pred_as_a,total_confusion
+a,ana,0,1,1
+a,anoo,0,1,1
+a,ka,0,1,1

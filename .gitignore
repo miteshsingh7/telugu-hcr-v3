@@ -1,0 +1,26 @@
+# Python & Virtualenv
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Checkpoints & Large Data (Use Git LFS or HuggingFace / Kaggle Datasets for model weights)
+data/
+*.zip
+*.tar.gz
+*.keras
+*.h5
+*.tflite
+
+# Logs & Temp Files
+logs/
+.DS_Store
+.ipynb_checkpoints/
+.pytest_cache/
+.coverage
+htmlcov/

@@ -1,0 +1,11 @@
+_base_: "base.yaml"
+
+experiment_name: "ensemble_final"
+ensemble:
+  method: "soft_voting"  # or "stacking"
+  model_paths: []  # filled after Phase 1/2
+  tta:
+    enabled: true
+    num_augmentations: 5
+    rotation_range: 8
+    shift_range: 0.08

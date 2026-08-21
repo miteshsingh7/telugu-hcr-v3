@@ -1,0 +1,93 @@
+{
+    "epoch": 9,
+    "best_val_acc": 0.25,
+    "best_val_loss": 1.386054277420044,
+    "current_lr": 0.0009929980151355267,
+    "seed": 42,
+    "config": {
+        "data_dir": "data/",
+        "output_dir": "outputs/",
+        "reports_dir": "reports/",
+        "checkpoint_dir": "checkpoints/",
+        "split_ratios": {
+            "train": 0.8,
+            "val": 0.1,
+            "test": 0.1
+        },
+        "seed": 42,
+        "image_size": 128,
+        "num_channels": 3,
+        "normalize_mode": "imagenet",
+        "mixed_precision": true,
+        "layout_optimizer": false,
+        "label_smoothing": 0.1,
+        "batch_size": 64,
+        "augmentation": {
+            "rotation_range": 10,
+            "width_shift": 0.1,
+            "height_shift": 0.1,
+            "zoom_range": 0.1,
+            "brightness_range": [
+                0.9,
+                1.1
+            ],
+            "horizontal_flip": false,
+            "mixup_alpha": 0.0,
+            "elastic_deformation": true
+        },
+        "experiment_name": "track_b_custom_cnn",
+        "model": {
+            "type": "custom_cnn",
+            "num_channels": 1,
+            "conv_blocks": [
+                {
+                    "filters": 32,
+                    "kernel_size": 3
+                },
+                {
+                    "filters": 64,
+                    "kernel_size": 3
+                },
+                {
+                    "filters": 128,
+                    "kernel_size": 3
+                },
+                {
+                    "filters": 128,
+                    "kernel_size": 3
+                },
+                {
+                    "filters": 256,
+                    "kernel_size": 3
+                },
+                {
+                    "filters": 256,
+                    "kernel_size": 3
+                }
+            ],
+            "head": {
+                "pool": "global_average",
+                "dropout_1": 0.4,
+                "dense_units": 256,
+                "dropout_2": 0.3
+            }
+        },
+        "training": {
+            "epochs": 80,
+            "initial_lr": 0.001,
+            "optimizer": "adamw",
+            "weight_decay": 0.0001,
+            "warmup_epochs": 5,
+            "schedule": "cosine_decay",
+            "early_stopping_patience": 10,
+            "class_weight": true
+        }
+    },
+    "timestamp": "2026-08-20T12:21:07.934289",
+    "metrics": {
+        "accuracy": 0.34375,
+        "loss": 2.2407422065734863,
+        "val_accuracy": 0.25,
+        "val_loss": 1.3881038427352905
+    }
+}
