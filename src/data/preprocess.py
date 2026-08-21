@@ -161,12 +161,16 @@ def tf_canonical_preprocess(
     right = pad_w - left
     img_padded = tf.pad(img, [[top, bottom], [left, right], [0, 0]], mode="CONSTANT", constant_values=255)
 
-    # Resize using area interpolation for anti-aliasing
+    # Resize — use bilinear for upscaling (no Gibbs ringing overshoot),
+    # area for downscaling (proper anti-aliasing).
     img_resized = tf.cond(
         max_dim > img_size,
         lambda: tf.image.resize(img_padded, [img_size, img_size], method="area"),
-        lambda: tf.image.resize(img_padded, [img_size, img_size], method="bicubic"),
+        lambda: tf.image.resize(img_padded, [img_size, img_size], method="bilinear"),
     )
+
+    # Clamp to valid [0, 255] range before normalization (interpolation can overshoot)
+    img_resized = tf.clip_by_value(img_resized, 0.0, 255.0)
 
     if num_channels == 3:
         img_resized = tf.repeat(img_resized, 3, axis=-1)
@@ -178,6 +182,9 @@ def tf_canonical_preprocess(
         img_normalized = img_resized - mean
     else:
         img_normalized = img_resized / 255.0
+
+    # Final safety clamp to [0, 1]
+    img_normalized = tf.clip_by_value(img_normalized, 0.0, 1.0)
 
     img_normalized.set_shape([img_size, img_size, num_channels])
     return img_normalized

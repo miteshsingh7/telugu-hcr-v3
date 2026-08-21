@@ -207,7 +207,7 @@ def make_tracing_background(glyph_text: str, size: int = 300) -> Image.Image:
                 continue
                 
     if font:
-        draw.text((size // 2, size // 2), glyph_text, font=font, fill=(175, 190, 210), anchor="mm")
+        draw.text((size // 2, size // 2), glyph_text, font=font, fill=(235, 238, 244), anchor="mm")
     return img
 
 
@@ -350,7 +350,7 @@ with tab_draw:
             raw_data = canvas_result.image_data
             current_hash = hashlib.md5(raw_data.tobytes()).hexdigest()
             
-            if np.mean(raw_data[:, :, :3]) < 252 or np.any(raw_data[:, :, :3] < 120):
+            if np.any(raw_data[:, :, :3] < 180):
                 if current_hash != st.session_state.get("last_canvas_hash"):
                     st.session_state["last_canvas_hash"] = current_hash
                     st.session_state["sample_image_path"] = None
