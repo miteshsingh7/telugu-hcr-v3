@@ -257,7 +257,7 @@ with tab_draw:
             if model is not None:
                 if len(model.input_shape) == 4 and model.input_shape[-1] == 3:
                     tensor_in = np.repeat(tensor_in, 3, axis=-1)
-                preds = model.predict(tensor_in, verbose=0)[0]
+                preds = model(tensor_in, training=False).numpy()[0]
             else:
                 preds = np.zeros(len(class_names))
                 preds[0] = 0.88
@@ -342,7 +342,7 @@ with tab_upload:
             if model is not None:
                 if len(model.input_shape) == 4 and model.input_shape[-1] == 3:
                     tensor_up = np.repeat(tensor_up, 3, axis=-1)
-                up_preds = model.predict(tensor_up, verbose=0)[0]
+                up_preds = model(tensor_up, training=False).numpy()[0]
             else:
                 up_preds = np.zeros(len(class_names))
                 up_preds[0] = 0.91
