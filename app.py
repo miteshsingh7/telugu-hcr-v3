@@ -9,6 +9,14 @@ import numpy as np
 from PIL import Image, ImageOps, ImageFilter
 import streamlit as st
 
+# Fix Keras 3 multi-threading name_scope in Streamlit worker threads
+try:
+    import keras.src.backend.common.global_state as global_state
+    if global_state.get_global_attribute("name_scope_stack") is None:
+        global_state.set_global_attribute("name_scope_stack", [])
+except Exception:
+    pass
+
 ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -170,6 +178,21 @@ def preprocess_image(img: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, 
     return tensor, canvas
 
 
+def predict_character(model, tensor_in: np.ndarray) -> np.ndarray:
+    try:
+        import keras.src.backend.common.global_state as global_state
+        if global_state.get_global_attribute("name_scope_stack") is None:
+            global_state.set_global_attribute("name_scope_stack", [])
+    except Exception:
+        pass
+    
+    if len(model.input_shape) == 4 and model.input_shape[-1] == 3:
+        tensor_in = np.repeat(tensor_in, 3, axis=-1)
+        
+    preds = model(tensor_in, training=False).numpy()[0]
+    return preds
+
+
 model, model_path, class_names = load_hcr_model()
 
 if "sample_image_path" not in st.session_state:
@@ -247,14 +270,11 @@ with tab_draw:
         has_drawing = False
         input_image = None
         
-        # Check if user drew a new stroke on canvas
         if has_canvas and canvas_result is not None and canvas_result.image_data is not None:
             raw_data = canvas_result.image_data
             current_hash = hashlib.md5(raw_data.tobytes()).hexdigest()
             
-            # If user drew something non-blank
             if np.mean(raw_data[:, :, :3]) < 252 or np.any(raw_data[:, :, :3] < 120):
-                # If canvas changed, prioritize canvas over previous sample!
                 if current_hash != st.session_state.get("last_canvas_hash"):
                     st.session_state["last_canvas_hash"] = current_hash
                     st.session_state["sample_image_path"] = None
@@ -264,7 +284,6 @@ with tab_draw:
                     input_image = Image.fromarray(raw_data.astype("uint8")).convert("RGB")
                     st.caption("🎨 Source: Live Canvas Drawing")
 
-        # If sample is selected and not overridden by fresh canvas
         if input_image is None and st.session_state.get("sample_image_path") and Path(st.session_state["sample_image_path"]).exists():
             input_image = Image.open(st.session_state["sample_image_path"])
             has_drawing = True
@@ -274,9 +293,7 @@ with tab_draw:
             tensor_in, preproc_img = preprocess_image(input_image, img_size=96)
             
             if model is not None:
-                if len(model.input_shape) == 4 and model.input_shape[-1] == 3:
-                    tensor_in = np.repeat(tensor_in, 3, axis=-1)
-                preds = model(tensor_in, training=False).numpy()[0]
+                preds = predict_character(model, tensor_in)
             else:
                 preds = np.zeros(len(class_names))
                 preds[0] = 0.88
@@ -359,9 +376,7 @@ with tab_upload:
         with col_u2:
             tensor_up, preproc_up = preprocess_image(up_img, img_size=96)
             if model is not None:
-                if len(model.input_shape) == 4 and model.input_shape[-1] == 3:
-                    tensor_up = np.repeat(tensor_up, 3, axis=-1)
-                up_preds = model(tensor_up, training=False).numpy()[0]
+                up_preds = predict_character(model, tensor_up)
             else:
                 up_preds = np.zeros(len(class_names))
                 up_preds[0] = 0.91
