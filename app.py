@@ -10,11 +10,18 @@ import numpy as np
 from PIL import Image, ImageOps, ImageFilter
 import streamlit as st
 
-# Fix Keras 3 multi-threading name_scope in Streamlit worker threads
+# Permanent thread-safe monkey-patch for Keras 3.11 in multi-threaded web servers
 try:
-    import keras.src.backend.common.global_state as global_state
-    if global_state.get_global_attribute("name_scope_stack") is None:
-        global_state.set_global_attribute("name_scope_stack", [])
+    import keras.src.backend.common.name_scope as ns
+    import keras.src.backend.common.global_state as gs
+
+    def _safe_name_scope_exit(self, *args, **kwargs):
+        if getattr(self, "_pop_on_exit", False):
+            stack = gs.get_global_attribute("name_scope_stack")
+            if stack:
+                stack.pop()
+
+    ns.name_scope.__exit__ = _safe_name_scope_exit
 except Exception:
     pass
 
@@ -183,16 +190,8 @@ def preprocess_image(img: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, 
 
 
 def predict_character(model, tensor_in: np.ndarray) -> np.ndarray:
-    try:
-        import keras.src.backend.common.global_state as global_state
-        if global_state.get_global_attribute("name_scope_stack") is None:
-            global_state.set_global_attribute("name_scope_stack", [])
-    except Exception:
-        pass
-    
     if len(model.input_shape) == 4 and model.input_shape[-1] == 3:
         tensor_in = np.repeat(tensor_in, 3, axis=-1)
-        
     preds = model(tensor_in, training=False).numpy()[0]
     return preds
 
