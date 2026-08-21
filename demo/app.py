@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import hashlib
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -174,6 +175,9 @@ model, model_path, class_names = load_hcr_model()
 if "sample_image_path" not in st.session_state:
     st.session_state["sample_image_path"] = None
 
+if "last_canvas_hash" not in st.session_state:
+    st.session_state["last_canvas_hash"] = ""
+
 st.markdown('<div class="main-header">✍️ Telugu Handwritten Character Recognizer (v3)</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Deep Learning Character Recognition for 630 Telugu Aksharas (Achulu, Hallulu, Guninthamulu, Othulu)</div>', unsafe_allow_html=True)
 
@@ -229,9 +233,11 @@ with tab_draw:
             has_canvas = False
             st.warning("Install `streamlit-drawable-canvas` for interactive drawing.")
             
+        recognize_btn = st.button("🚀 Recognize Character", type="primary", use_container_width=True)
+        
         if st.session_state.get("sample_image_path"):
-            st.info(f"Currently viewing sample: `{Path(st.session_state['sample_image_path']).name}`")
-            if st.button("🧹 Clear Selected Sample / Return to Canvas", use_container_width=True):
+            st.info(f"Viewing Sample: `{Path(st.session_state['sample_image_path']).name}`")
+            if st.button("🧹 Clear Sample / Switch Back to Canvas", use_container_width=True):
                 st.session_state["sample_image_path"] = None
                 st.rerun()
 
@@ -241,15 +247,28 @@ with tab_draw:
         has_drawing = False
         input_image = None
         
-        if st.session_state.get("sample_image_path") and Path(st.session_state["sample_image_path"]).exists():
+        # Check if user drew a new stroke on canvas
+        if has_canvas and canvas_result is not None and canvas_result.image_data is not None:
+            raw_data = canvas_result.image_data
+            current_hash = hashlib.md5(raw_data.tobytes()).hexdigest()
+            
+            # If user drew something non-blank
+            if np.mean(raw_data[:, :, :3]) < 252 or np.any(raw_data[:, :, :3] < 120):
+                # If canvas changed, prioritize canvas over previous sample!
+                if current_hash != st.session_state.get("last_canvas_hash"):
+                    st.session_state["last_canvas_hash"] = current_hash
+                    st.session_state["sample_image_path"] = None
+                
+                if st.session_state.get("sample_image_path") is None:
+                    has_drawing = True
+                    input_image = Image.fromarray(raw_data.astype("uint8")).convert("RGB")
+                    st.caption("🎨 Source: Live Canvas Drawing")
+
+        # If sample is selected and not overridden by fresh canvas
+        if input_image is None and st.session_state.get("sample_image_path") and Path(st.session_state["sample_image_path"]).exists():
             input_image = Image.open(st.session_state["sample_image_path"])
             has_drawing = True
-            st.caption(f"📁 Dataset Image: `{Path(st.session_state['sample_image_path']).name}`")
-        elif has_canvas and canvas_result is not None and canvas_result.image_data is not None:
-            raw_data = canvas_result.image_data
-            if np.mean(raw_data[:, :, :3]) < 250 or np.any(raw_data[:, :, :3] < 100):
-                has_drawing = True
-                input_image = Image.fromarray(raw_data.astype("uint8")).convert("RGB")
+            st.caption(f"📁 Source: Dataset Sample (`{Path(st.session_state['sample_image_path']).name}`)")
                 
         if has_drawing and input_image is not None:
             tensor_in, preproc_img = preprocess_image(input_image, img_size=96)
@@ -292,7 +311,7 @@ with tab_draw:
             with st.expander("🔍 Preprocessed 96×96 Input View"):
                 st.image(preproc_img, caption="What the Neural Network sees", width=120)
         else:
-            st.info("Draw a Telugu character on the canvas or pick a sample from the Visual Gallery!")
+            st.info("Draw a character on the canvas on the left or select a sample from the Visual Gallery!")
 
 
 # ----------------- TAB 2: VISUAL SAMPLE GALLERY -----------------
@@ -304,7 +323,6 @@ with tab_gallery:
     if gallery_dir.exists():
         gallery_images = sorted(list(gallery_dir.glob("*.*")))
         
-        # Display in a 4-column responsive image grid
         cols = st.columns(4)
         for i, img_path in enumerate(gallery_images):
             col = cols[i % 4]
@@ -321,7 +339,8 @@ with tab_gallery:
                 st.image(str(img_path), width=100)
                 if st.button(f"🚀 Test `{glyph}`", key=f"btn_gal_{i}", use_container_width=True):
                     st.session_state["sample_image_path"] = str(img_path)
-                    st.toast(f"Loaded sample for {glyph} ({desc})! Go to 'Draw Character' tab to see prediction.")
+                    st.session_state["last_canvas_hash"] = ""
+                    st.toast(f"Loaded {glyph} ({desc})! Switched to Draw tab.")
                     st.rerun()
 
 
