@@ -10,13 +10,20 @@ def build_custom_cnn(
     if config is None:
         config = {}
 
-    filters = config.get("conv_blocks", [32, 64, 128, 128, 256, 256])
+    conv_blocks = config.get("conv_blocks", [32, 64, 128, 128, 256, 256])
 
     inputs = tf.keras.Input(shape=input_shape)
     x = inputs
 
-    for f in filters:
-        x = tf.keras.layers.Conv2D(f, 3, padding="same")(x)
+    for block in conv_blocks:
+        if isinstance(block, dict):
+            f = block.get("filters", 32)
+            k = block.get("kernel_size", 3)
+        else:
+            f = int(block)
+            k = 3
+            
+        x = tf.keras.layers.Conv2D(f, k, padding="same")(x)
         x = tf.keras.layers.BatchNormalization()(x)
         x = tf.keras.layers.ReLU()(x)
         x = tf.keras.layers.MaxPool2D(2, 2)(x)

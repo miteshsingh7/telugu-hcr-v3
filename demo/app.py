@@ -39,6 +39,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from src.data.telugu_unicode import map_class_to_telugu, CONSONANTS, VOWELS
+from src.data.preprocess import numpy_canonical_preprocess
 
 st.set_page_config(
     page_title="Telugu Handwritten Character Recognizer (v3)",
@@ -125,14 +126,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-@st.cache_resource(show_spinner="Loading Telugu HCR Model...")
+@st.cache_resource(show_spinner="Loading Telugu HCR Neural Network...")
 def load_hcr_model():
     import tensorflow as tf
     
     model_paths = [
         ROOT_DIR / "checkpoints/telugu_v3_best.keras",
-        ROOT_DIR / "checkpoints/track_a_best.keras",
         ROOT_DIR / "checkpoints/track_b_best.keras",
+        ROOT_DIR / "checkpoints/track_b_custom_cnn/best_model/model.keras",
+        ROOT_DIR / "checkpoints/track_a_best.keras",
     ]
     
     loaded_model = None
@@ -146,6 +148,20 @@ def load_hcr_model():
             except Exception:
                 continue
                 
+    # If not found locally, attempt Hugging Face Hub download
+    if loaded_model is None:
+        try:
+            from huggingface_hub import hf_hub_download
+            hf_path = hf_hub_download(
+                repo_id="miteshsingh7/telugu-hcr-v3-models",
+                filename="telugu_v3_best.keras",
+                local_dir=str(ROOT_DIR / "checkpoints"),
+            )
+            loaded_model = tf.keras.models.load_model(hf_path, compile=False)
+            loaded_path = hf_path
+        except Exception:
+            pass
+
     class_names = []
     class_map_paths = [
         ROOT_DIR / "outputs/class_names.json",
@@ -195,48 +211,16 @@ def make_tracing_background(glyph_text: str, size: int = 300) -> Image.Image:
     return img
 
 
-def preprocess_image(img_pil: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, Image.Image]:
-    """MNIST-style centered bounding-box normalization with stroke thickness normalization.
-    Centers glyph to 70% of 96x96 box to prevent white-background prior collapse.
-    """
-    img = np.array(img_pil.convert("L"))
-    
-    if np.mean(img) < 127:
-        img = 255 - img
-        
-    ink_mask = (img < 210).astype(np.uint8) * 255
-    if np.any(ink_mask > 0):
-        coords = cv2.findNonZero(ink_mask)
-        x, y, w, h = cv2.boundingRect(coords)
-        cropped = img[y:y+h, x:x+w]
-        
-        target_size = int(img_size * 0.70)
-        scale = target_size / max(w, h)
-        nw = max(4, int(w * scale))
-        nh = max(4, int(h * scale))
-        
-        resized = cv2.resize(cropped, (nw, nh), interpolation=cv2.INTER_AREA)
-        
-        ink_only = (resized < 210).astype(np.uint8) * 255
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        dilated = cv2.dilate(ink_only, kernel, iterations=1)
-        smoothed = cv2.GaussianBlur(dilated, (3, 3), 0.6)
-        
-        canvas = np.full((img_size, img_size), 255, dtype=np.uint8)
-        off_x = (img_size - nw) // 2
-        off_y = (img_size - nh) // 2
-        canvas[off_y:off_y+nh, off_x:off_x+nw] = 255 - smoothed
-    else:
-        canvas = np.full((img_size, img_size), 255, dtype=np.uint8)
-        
-    arr = canvas.astype("float32") / 255.0
-    tensor = np.expand_dims(np.expand_dims(arr, -1), 0)
-    return tensor, Image.fromarray(canvas)
-
-
 def predict_character(model, tensor_in: np.ndarray) -> np.ndarray:
-    if len(model.input_shape) == 4 and model.input_shape[-1] == 3:
+    expected_dim = model.input_shape[1:3]
+    actual_dim = tensor_in.shape[1:3]
+    assert actual_dim == expected_dim, f"Resolution Mismatch: Model expects {expected_dim}, but got {actual_dim}"
+    
+    if len(model.input_shape) == 4 and model.input_shape[-1] == 3 and tensor_in.shape[-1] == 1:
         tensor_in = np.repeat(tensor_in, 3, axis=-1)
+    elif len(model.input_shape) == 4 and model.input_shape[-1] == 1 and tensor_in.shape[-1] == 3:
+        tensor_in = tensor_in[:, :, :, :1]
+        
     preds = model(tensor_in, training=False).numpy()[0]
     return preds
 
@@ -277,23 +261,27 @@ st.markdown('<div class="sub-header">Deep Learning Character Recognition for 630
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Telugu_alphabet.png/320px-Telugu_alphabet.png", width="stretch")
     st.markdown("### ⚙️ Model Information")
-    if model:
+    if model is not None:
         st.success(f"**Model Loaded:** `{Path(model_path).name}`")
+        st.info(f"**Input Shape:** `{model.input_shape}`")
         st.info(f"**Total Parameters:** `{model.count_params():,}`")
-        st.info(f"**Classes:** `{len(class_names):,}` Telugu Characters")
+        st.info(f"**Classes:** `{len(class_names):,}` Telugu Categories")
     else:
-        st.warning("Running in Demo Mode.")
+        st.error("🚨 **NO MODEL LOADED!** Checkpoint not found in `checkpoints/`. Real predictions are disabled.")
         
     st.markdown("---")
     st.markdown("### 📊 Benchmark Metrics")
     st.markdown("""
-    - **Top-1 Accuracy:** `85.64%` (Fine-Tuned v3)
-    - **Top-3 Accuracy:** `97.11%` (Top-3 Candidates)
-    - **Top-5 Accuracy:** `98.64%` (Near-Perfect)
+    - **Top-1 Accuracy:** `74.60%` (Baseline Test Set)
+    - **Top-3 Accuracy:** `93.60%` (Top-3 Candidates)
+    - **Top-5 Accuracy:** `97.20%` (Near-Perfect)
     - **Classes:** `630` Categories
     """)
     st.markdown("---")
     st.markdown("Developed with **TensorFlow / Keras & Streamlit**")
+
+if model is None:
+    st.error("🚨 **No Trained Model Checkpoint Found!** Please ensure a valid `.keras` file exists in `checkpoints/` (e.g. `telugu_v3_best.keras` or `track_b_best.keras`). Inference is disabled until a model is present.")
 
 tab_draw, tab_gallery, tab_upload, tab_explorer, tab_metrics = st.tabs([
     "🎨 Draw Character", "🖼️ Visual Sample Gallery", "📁 Upload Image", "📖 630 Character Explorer", "📊 Architecture & Metrics"
@@ -369,7 +357,7 @@ with tab_draw:
                 
                 if st.session_state.get("sample_image_path") is None:
                     has_drawing = True
-                    input_image = Image.fromarray(raw_data.astype("uint8")).convert("RGB")
+                    input_image = Image.fromarray(raw_data.astype("uint8"))
                     st.caption("🎨 Source: Live Canvas Drawing")
 
         if input_image is None and st.session_state.get("sample_image_path") and Path(st.session_state["sample_image_path"]).exists():
@@ -378,61 +366,59 @@ with tab_draw:
             st.caption(f"📁 Source: Dataset Sample (`{Path(st.session_state['sample_image_path']).name}`)")
                 
         if has_drawing and input_image is not None:
-            tensor_in, preproc_img = preprocess_image(input_image, img_size=96)
-            
-            if model is not None:
-                preds = predict_character(model, tensor_in)
+            if model is None:
+                st.error("🚨 Inference unavailable: No trained neural network is loaded.")
             else:
-                preds = np.zeros(len(class_names))
-                preds[0] = 0.88
-                preds[1] = 0.08
-                preds[2] = 0.04
+                img_size = model.input_shape[1] if model.input_shape[1] is not None else 96
+                tensor_in, preproc_img = numpy_canonical_preprocess(input_image, img_size=img_size, num_channels=1)
                 
-            # 1. Primary Base Letter Aggregation (Hierarchical)
-            base_scores = {}
-            for i, p in enumerate(preds):
-                base_glyph, base_desc = get_base_letter(class_names[i])
-                base_scores[base_glyph] = base_scores.get(base_glyph, 0.0) + float(p)
+                preds = predict_character(model, tensor_in)
                 
-            sorted_bases = sorted(base_scores.items(), key=lambda x: x[1], reverse=True)[:3]
-            top_base_glyph, top_base_conf = sorted_bases[0]
-            
-            # 2. Exact 630 Diacritic Candidates
-            top_indices = np.argsort(preds)[::-1][:5]
-            top1_cls = class_names[top_indices[0]]
-            top1_glyph, top1_desc, top1_cat = map_class_to_telugu(top1_cls)
-            top1_conf = preds[top_indices[0]] * 100
-            
-            st.markdown(f"""
-            <div class="glyph-box">
-                <div style="font-size: 1.1rem; color: #166534; font-weight: 600; text-transform: uppercase;">Identified Base Letter:</div>
-                <div class="telugu-glyph">{top_base_glyph}</div>
-                <div class="glyph-name">Root Letter Confidence: {top_base_conf*100:.1f}%</div>
-                <div class="glyph-category">Exact Diacritic Form: {top1_glyph} ({top1_desc}) • {top1_conf:.1f}%</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("##### 🏆 Primary Letter Candidates (Top-3):")
-            for rank, (bglyph, bconf) in enumerate(sorted_bases, 1):
-                col_b1, col_b2 = st.columns([1.2, 3.8])
-                with col_b1:
-                    st.markdown(f"**#{rank} &nbsp; `{bglyph}`**")
-                with col_b2:
-                    st.progress(float(min(1.0, bconf)), text=f"{bconf*100:.1f}%")
+                # 1. Primary Base Letter Aggregation (Hierarchical)
+                base_scores = {}
+                for i, p in enumerate(preds):
+                    base_glyph, base_desc = get_base_letter(class_names[i])
+                    base_scores[base_glyph] = base_scores.get(base_glyph, 0.0) + float(p)
                     
-            with st.expander("🔬 Priority 2 Debug View (Exact Array & Logits)"):
-                col_d1, col_d2 = st.columns([1, 2])
-                with col_d1:
-                    st.image(preproc_img, caption=f"Array shape: {tensor_in.shape}", width=120)
-                with col_d2:
-                    st.code(f"Top-1 Class Index: {top_indices[0]}\nClass Name: {top1_cls}\nRaw Probability: {preds[top_indices[0]]:.6f}")
-                    
-            with st.expander("🔬 View Detailed 630-Class Diacritic Predictions"):
-                for rank, idx in enumerate(top_indices, 1):
-                    c_name = class_names[idx]
-                    glyph, desc, _ = map_class_to_telugu(c_name)
-                    conf = preds[idx]
-                    st.write(f"#{rank} `[Index {idx}] {glyph}` ({desc}) — {conf*100:.1f}%")
+                sorted_bases = sorted(base_scores.items(), key=lambda x: x[1], reverse=True)[:3]
+                top_base_glyph, top_base_conf = sorted_bases[0]
+                
+                # 2. Exact 630 Diacritic Candidates
+                top_indices = np.argsort(preds)[::-1][:5]
+                top1_cls = class_names[top_indices[0]]
+                top1_glyph, top1_desc, top1_cat = map_class_to_telugu(top1_cls)
+                top1_conf = preds[top_indices[0]] * 100
+                
+                st.markdown(f"""
+                <div class="glyph-box">
+                    <div style="font-size: 1.1rem; color: #166534; font-weight: 600; text-transform: uppercase;">Identified Base Letter:</div>
+                    <div class="telugu-glyph">{top_base_glyph}</div>
+                    <div class="glyph-name">Root Letter Confidence: {top_base_conf*100:.1f}%</div>
+                    <div class="glyph-category">Exact Diacritic Form: {top1_glyph} ({top1_desc}) • {top1_conf:.1f}%</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown("##### 🏆 Primary Letter Candidates (Top-3):")
+                for rank, (bglyph, bconf) in enumerate(sorted_bases, 1):
+                    col_b1, col_b2 = st.columns([1.2, 3.8])
+                    with col_b1:
+                        st.markdown(f"**#{rank} &nbsp; `{bglyph}`**")
+                    with col_b2:
+                        st.progress(float(min(1.0, bconf)), text=f"{bconf*100:.1f}%")
+                        
+                with st.expander("🔬 Priority 2 Debug View (Exact Array & Logits)"):
+                    col_d1, col_d2 = st.columns([1, 2])
+                    with col_d1:
+                        st.image(preproc_img, caption=f"Canonical Shape: {tensor_in.shape}", width=120)
+                    with col_d2:
+                        st.code(f"Model Input Shape: {model.input_shape}\nTop-1 Class Index: {top_indices[0]}\nClass Name: {top1_cls}\nRaw Probability: {preds[top_indices[0]]:.6f}")
+                        
+                with st.expander("🔬 View Detailed 630-Class Diacritic Predictions"):
+                    for rank, idx in enumerate(top_indices, 1):
+                        c_name = class_names[idx]
+                        glyph, desc, _ = map_class_to_telugu(c_name)
+                        conf = preds[idx]
+                        st.write(f"#{rank} `[Index {idx}] {glyph}` ({desc}) — {conf*100:.1f}%")
         else:
             st.info("Draw a character on the canvas on the left or select a sample from the Visual Gallery!")
 
@@ -480,33 +466,32 @@ with tab_upload:
             st.image(up_img, caption="Uploaded Image", width=250)
             
         with col_u2:
-            tensor_up, preproc_up = preprocess_image(up_img, img_size=96)
-            if model is not None:
-                up_preds = predict_character(model, tensor_up)
+            if model is None:
+                st.error("🚨 Inference unavailable: No trained neural network is loaded.")
             else:
-                up_preds = np.zeros(len(class_names))
-                up_preds[0] = 0.91
-                up_preds[1] = 0.05
+                img_size = model.input_shape[1] if model.input_shape[1] is not None else 96
+                tensor_up, preproc_up = numpy_canonical_preprocess(up_img, img_size=img_size, num_channels=1)
+                up_preds = predict_character(model, tensor_up)
                 
-            top_up_indices = np.argsort(up_preds)[::-1][:5]
-            up_top1_cls = class_names[top_up_indices[0]]
-            up_glyph, up_desc, up_cat = map_class_to_telugu(up_top1_cls)
-            up_conf = up_preds[top_up_indices[0]] * 100
-            
-            st.markdown(f"""
-            <div class="glyph-box">
-                <div class="telugu-glyph">{up_glyph}</div>
-                <div class="glyph-name">{up_desc}</div>
-                <div class="glyph-category">{up_cat} • Confidence: {up_conf:.1f}%</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.markdown("##### Top Predictions:")
-            for rank, idx in enumerate(top_up_indices, 1):
-                c_name = class_names[idx]
-                glyph, desc, _ = map_class_to_telugu(c_name)
-                conf = up_preds[idx]
-                st.progress(float(min(1.0, conf)), text=f"#{rank} {glyph} ({desc}) — {conf*100:.1f}%")
+                top_up_indices = np.argsort(up_preds)[::-1][:5]
+                up_top1_cls = class_names[top_up_indices[0]]
+                up_glyph, up_desc, up_cat = map_class_to_telugu(up_top1_cls)
+                up_conf = up_preds[top_up_indices[0]] * 100
+                
+                st.markdown(f"""
+                <div class="glyph-box">
+                    <div class="telugu-glyph">{up_glyph}</div>
+                    <div class="glyph-name">{up_desc}</div>
+                    <div class="glyph-category">{up_cat} • Confidence: {up_conf:.1f}%</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown("##### Top Predictions:")
+                for rank, idx in enumerate(top_up_indices, 1):
+                    c_name = class_names[idx]
+                    glyph, desc, _ = map_class_to_telugu(c_name)
+                    conf = up_preds[idx]
+                    st.progress(float(min(1.0, conf)), text=f"#{rank} {glyph} ({desc}) — {conf*100:.1f}%")
 
 
 # ----------------- TAB 4: EXPLORER -----------------
@@ -531,11 +516,11 @@ with tab_metrics:
     
     m1, m2, m3, m4 = st.columns(4)
     with m1:
-        st.markdown("""<div class="metric-card"><div class="metric-value">85.64%</div><div class="metric-label">Top-1 Accuracy (v3)</div></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="metric-card"><div class="metric-value">74.60%</div><div class="metric-label">Top-1 Accuracy (Baseline)</div></div>""", unsafe_allow_html=True)
     with m2:
-        st.markdown("""<div class="metric-card"><div class="metric-value">97.11%</div><div class="metric-label">Top-3 Accuracy</div></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="metric-card"><div class="metric-value">93.60%</div><div class="metric-label">Top-3 Accuracy</div></div>""", unsafe_allow_html=True)
     with m3:
-        st.markdown("""<div class="metric-card"><div class="metric-value">98.64%</div><div class="metric-label">Top-5 Accuracy</div></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="metric-card"><div class="metric-value">97.20%</div><div class="metric-label">Top-5 Accuracy</div></div>""", unsafe_allow_html=True)
     with m4:
         st.markdown("""<div class="metric-card"><div class="metric-value">630</div><div class="metric-label">Classes Supported</div></div>""", unsafe_allow_html=True)
         
@@ -543,7 +528,7 @@ with tab_metrics:
     st.markdown("""
     ### 🔬 Pipeline Specifications:
     - **Dataset Size:** 292,752 handwritten character images across 630 unique classes.
-    - **Input Representation:** 96×96 Grayscale normalized tensors with dynamic augmentation.
-    - **Model Architecture:** Custom 80-Layer ResNet CNN with Residual Conv Blocks, Batch Normalization, and Dropout.
-    - **Optimization:** AdamW optimizer with Warmup Cosine Learning Rate Decay and Label Smoothing (`0.05`).
+    - **Input Representation:** 96×96 Grayscale canonical normalized tensors.
+    - **Model Architecture:** Custom 6-Block CNN with Batch Normalization, Dropout, and Global Average Pooling.
+    - **Optimization:** AdamW optimizer with Warmup Cosine Learning Rate Decay.
     """)

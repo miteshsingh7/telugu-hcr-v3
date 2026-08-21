@@ -1,0 +1,11 @@
+{
+    "timestamp": "2026-08-21T18:02:47.952393",
+    "model_path": "checkpoints/telugu_v3_best.keras",
+    "data_csv": "outputs/test.csv",
+    "top1_accuracy": 0.62,
+    "top3_accuracy": 3.02,
+    "top5_accuracy": 5.94,
+    "num_samples": 960,
+    "num_classes": 630,
+    "eval_seconds": 5.43
+}

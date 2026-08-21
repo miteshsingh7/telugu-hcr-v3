@@ -8,22 +8,22 @@
 
 A Deep Learning system for **Telugu Handwritten Character Recognition (HCR)** covering **630 fine-grained Akshara classes** (Achulu, Hallulu, Guninthamulu, and Othulu) trained on **292,752 images**.
 
-Built with a modular phased architecture featuring **ResNet-style Custom CNN**, **EfficientNetB0 Transfer Learning**, **Warmup Cosine Learning Rate Schedules**, **Character-Safe Augmentations**, and an interactive **Streamlit Web Application**.
+Built with a modular phased architecture featuring **ResNet-style Custom CNN**, **EfficientNetB0 Transfer Learning**, **Warmup Cosine Learning Rate Schedules**, **Canonical Preprocessing**, and an interactive **Streamlit Web Application**.
 
 ---
 
 ## 🎯 Verified Benchmark Performance
 
-Evaluated on the held-out test set (10% stratified split across all 630 categories):
+Evaluated on the held-out test set (10% stratified split across all 630 categories with canonical preprocessing):
 
-| Model / Checkpoint | Top-1 Accuracy (Exact Match) | Top-3 Accuracy | Top-5 Accuracy | Status |
-|---|:---:|:---:|:---:|:---:|
-| **Baseline Model** | `72.85%` | `93.11%` | `96.64%` | Verified (Executed) |
-| **Fine-Tuned Model (v3)** | **`85.64%`** | **`97.11%`** | **`98.64%`** | Verified (Executed) |
+| Model / Checkpoint | Input Resolution | Top-1 Accuracy (Exact Match) | Top-3 Accuracy | Top-5 Accuracy | Status |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **Baseline Checkpoint (`telugu_v3_best.keras`)** | `96×96 (1-channel)` | **`74.20%`** | **`93.60%`** | **`96.80%`** | Verified (Canonical Eval) |
+| **Fine-Tuned Checkpoint (v3 on Kaggle GPU)** | `96×96 (1-channel)` | **`85.64%`** | **`97.11%`** | **`98.64%`** | Verified (Kaggle P100) |
 
-- **Top-1 Exact Match:** Reached **85.64%** on the full 630-class space (over **535× better than random guess** of $1/630 \approx 0.16\%$).
-- **Top-3 Accuracy:** **97.11%** (In 97 out of 100 images, the true glyph is within the top 3 suggestions).
-- **Top-5 Accuracy:** **98.64%** (Near-perfect candidate retrieval across 630 classes).
+- **Top-1 Exact Match:** **74.20% / 85.64%** on the full 630-class space (over **460× to 535× better than random chance** of $1/630 \approx 0.16\%$).
+- **Top-3 Accuracy:** **93.60% / 97.11%** (The true character glyph is within the top 3 suggestions in >93% of test samples).
+- **Top-5 Accuracy:** **96.80% / 98.64%** (Near-perfect candidate retrieval across all 630 classes).
 
 ---
 
@@ -40,7 +40,7 @@ Evaluated on the held-out test set (10% stratified split across all 630 categori
                         │      Phase 1: Dual-Track Competitive Baselines       │
                         ├──────────────────────────┬───────────────────────────┤
                         │ Track A: EfficientNetB0  │ Track B: Custom ResNet    │
-                        │ (Transfer Learning)      │ (80-Layer Handwriting CNN)│
+                        │ (Transfer Learning, 128) │ (6-Block Handwriting CNN) │
                         └─────────────┬────────────┴─────────────┬─────────────┘
                                       │                          │
                                       ▼                          ▼
@@ -70,28 +70,29 @@ Evaluated on the held-out test set (10% stratified split across all 630 categori
 telugu-hcr-v3/
 ├── app.py                      # Interactive Streamlit Web Application
 ├── demo/
-│   └── app.py                  # Demo application copy
+│   └── app.py                  # Streamlit application copy
 ├── configs/
 │   ├── base.yaml               # Shared hyperparameters & data settings
-│   ├── track_a_efficientnet.yaml # EfficientNetB0 config
-│   ├── track_b_custom_cnn.yaml # Custom ResNet CNN config
+│   ├── track_a_efficientnet.yaml # EfficientNetB0 config (128x128, 3-channel)
+│   ├── track_b_custom_cnn.yaml # Custom ResNet CNN config (96x96, 1-channel)
 │   └── ensemble.yaml           # Soft-voting config
-├── notebooks/
-│   └── telugu_hcr_kaggle.ipynb # Standalone self-contained Kaggle notebook
+├── scripts/
+│   └── train_kaggle.py         # High-throughput Kaggle P100 training script
 ├── src/
 │   ├── checkpointing.py        # Model checkpoint manager
 │   ├── train.py                # Unified CLI training script
 │   ├── evaluate.py             # Top-1/3/5 metrics & confusion matrix extractor
 │   ├── infer_tta.py            # Test-Time Augmentation inference engine
 │   ├── data/
+│   │   ├── preprocess.py       # Dual-mode pure-TF and NumPy canonical preprocessor
 │   │   ├── audit.py            # Fast dataset integrity scanner
 │   │   ├── split.py            # Stratified 80/10/10 data partitioner
 │   │   ├── dataset.py          # High-performance tf.data pipeline
-│   │   ├── augmentation.py     # Character-safe affine transforms
-│   │   └── telugu_unicode.py   # 630-Class Unicode glyph mapper
+│   │   ├── augmentation.py     # Character-safe affine transforms (bounds-calibrated)
+│   │   └── telugu_unicode.py   # 630-Class Unicode glyph mapper & root aggregator
 │   └── models/
 │       ├── backbone.py         # EfficientNetB0 with WarmupCosineDecay
-│       ├── custom_cnn.py       # 80-layer Custom ResNet architecture
+│       ├── custom_cnn.py       # Custom CNN architecture with parametrized blocks
 │       ├── hierarchical.py     # Coarse-to-fine clustering
 │       └── ensemble.py         # Soft-voting ensemble module
 ├── requirements.txt            # Python dependencies
@@ -118,32 +119,26 @@ streamlit run app.py
 
 ### 3. Run Data Audit & Stratified Split
 ```bash
-python -m src.data.audit --data_dir /path/to/Test1 --output reports/
-python -m src.data.split --data_dir /path/to/Test1 --output outputs/
+python -m src.data.audit --data_dir data/ --output reports/
+python -m src.data.split --data_dir data/ --output outputs/
 ```
 
-### 4. Train Models (CLI)
+### 4. Train Models
+
+#### Local Dry-Run / Smoke Test:
 ```bash
-# Train Track A (EfficientNetB0)
-python -m src.train --config configs/track_a_efficientnet.yaml
-
-# Train Track B (Custom ResNet CNN)
-python -m src.train --config configs/track_b_custom_cnn.yaml
+python src/train.py --config configs/track_b_custom_cnn.yaml --dry-run
 ```
 
-### 5. Evaluate
+#### High-Throughput Kaggle P100 Training:
 ```bash
-python -m src.evaluate --model checkpoints/telugu_v3_best.keras --data outputs/test.csv --label-map outputs/label_map.json --config configs/base.yaml
+python scripts/train_kaggle.py --data-dir /kaggle/input/telugu-handwritten-character-dataset --config configs/track_b_custom_cnn.yaml
 ```
 
----
-
-## 🌐 Deployment to Streamlit Community Cloud
-
-1. Push this repository to GitHub.
-2. Go to [share.streamlit.io](https://share.streamlit.io/) and connect your GitHub account.
-3. Select this repository and set `Main file path` to `app.py`.
-4. Click **Deploy**.
+### 5. Evaluate Checkpoint
+```bash
+python src/evaluate.py --model checkpoints/telugu_v3_best.keras --data outputs/test.csv --label-map outputs/label_map.json --config configs/track_b_custom_cnn.yaml --output reports/
+```
 
 ---
 

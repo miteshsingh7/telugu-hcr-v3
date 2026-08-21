@@ -7,6 +7,7 @@ import numpy as np
 import tensorflow as tf
 
 from src.data.augmentation import build_augmentation_fn
+from src.data.preprocess import tf_canonical_preprocess
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +32,11 @@ def build_dataset(
     config: Dict[str, Any],
     training: bool = True,
 ) -> tf.data.Dataset:
-    image_size = config.get("image_size", 128)
-    num_channels = config.get("num_channels", 3)
+    image_size = config.get("image_size", 96)
+    num_channels = config.get("num_channels", 1)
     if "model" in config and isinstance(config["model"], dict) and "num_channels" in config["model"]:
         num_channels = config["model"]["num_channels"]
-    normalize_mode = config.get("normalize_mode", "imagenet")
+    normalize_mode = config.get("normalize_mode", "rescale")
     batch_size = config.get("batch_size", 64)
     num_classes = len(label_map)
 
@@ -54,22 +55,12 @@ def build_dataset(
 
     def load_and_preprocess_image(path: tf.Tensor, label: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]:
         img_raw = tf.io.read_file(path)
-        img = tf.io.decode_image(img_raw, channels=0, expand_animations=False)
-        img = tf.cond(
-            tf.shape(img)[-1] >= 3,
-            lambda: tf.image.rgb_to_grayscale(img[:, :, :3]) if num_channels == 1 else img[:, :, :3],
-            lambda: tf.repeat(img, 3, axis=-1) if num_channels == 3 else img
+        img = tf_canonical_preprocess(
+            img_raw,
+            img_size=image_size,
+            num_channels=num_channels,
+            normalize_mode=normalize_mode,
         )
-        img.set_shape([None, None, num_channels])
-        img = tf.image.resize(img, [image_size, image_size])
-        img = tf.cast(img, tf.float32)
-
-        if normalize_mode == "imagenet" and num_channels == 3:
-            mean = tf.constant([123.68, 116.779, 103.939], dtype=tf.float32)
-            img = img - mean
-        else:
-            img = img / 255.0
-
         label_one_hot = tf.one_hot(label, depth=num_classes)
         return img, label_one_hot
 

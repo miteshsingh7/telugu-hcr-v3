@@ -1,0 +1,35 @@
+# Model Evaluation Benchmark Report
+
+- **Timestamp:** `2026-08-21T18:02:47.952393`
+- **Model Checkpoint:** `checkpoints/telugu_v3_best.keras`
+- **Evaluation Dataset:** `outputs/test.csv` (960 samples)
+- **Classes Evaluated:** 630
+- **Top-1 Accuracy:** **0.62%**
+- **Top-3 Accuracy:** **3.02%**
+- **Top-5 Accuracy:** **5.94%**
+- **Evaluation Time:** 5.43s
+
+### Top Confused Pairs:
+
+| class_a                 | class_b   |   count_a_pred_b |   count_b_pred_a |   total_confusion |
+|:------------------------|:----------|-----------------:|-----------------:|------------------:|
+| Guninthamulu__ana__anah | othulu__y |               45 |                0 |                45 |
+| Guninthamulu__ana__an   | othulu__y |               44 |                0 |                44 |
+| Guninthamulu__RR__RRII  | othulu__z |               40 |                0 |                40 |
+| Guninthamulu__ana__ana  | othulu__y |               38 |                0 |                38 |
+| Guninthamulu__RR__rrr   | othulu__y |               37 |                0 |                37 |
+| Guninthamulu__RR__RRI   | othulu__z |               33 |                0 |                33 |
+| Guninthamulu__RR__rre   | othulu__z |               32 |                0 |                32 |
+| Guninthamulu__RR__rrow  | othulu__z |               32 |                0 |                32 |
+| Guninthamulu__RR__RRU   | othulu__z |               31 |                0 |                31 |
+| Guninthamulu__RR__rrai  | othulu__y |               29 |                0 |                29 |
+| Guninthamulu__RR__rrah  | othulu__y |               29 |                0 |                29 |
+| Guninthamulu__RR__RRUU  | othulu__y |               28 |                0 |                28 |
+| Guninthamulu__RR__rr    | othulu__z |               27 |                0 |                27 |
+| Guninthamulu__RR__rree  | othulu__y |               24 |                0 |                24 |
+| Guninthamulu__RR__RRA   | othulu__z |               23 |                0 |                23 |
+| Guninthamulu__RR__R     | othulu__z |               22 |                0 |                22 |
+| Guninthamulu__RR__R     | othulu__y |               20 |                0 |                20 |
+| Guninthamulu__RR__rro   | othulu__z |               19 |                0 |                19 |
+| Guninthamulu__RR__rrm   | othulu__z |               19 |                0 |                19 |
+| Guninthamulu__RR__RRA   | othulu__y |               18 |                0 |                18 |

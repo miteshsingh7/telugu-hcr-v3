@@ -1,6 +1,10 @@
 _base_: "base.yaml"
 
 experiment_name: "track_b_custom_cnn"
+image_size: 96
+num_channels: 1
+normalize_mode: "rescale"
+
 model:
   type: "custom_cnn"
   num_channels: 1  # grayscale for custom CNN

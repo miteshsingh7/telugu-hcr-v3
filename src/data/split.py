@@ -21,25 +21,23 @@ def extract_class_name(file_path: str, data_root: Path) -> str:
     parts = Path(file_path).parts
     if "Test1" in parts:
         idx = parts.index("Test1")
-        return "/".join(parts[idx + 1 : -1])
+        return "__".join(parts[idx + 1 : -1])
     
     parent = Path(file_path).parent
     try:
         rel = parent.relative_to(data_root)
-        rel_str = str(rel)
-        if rel_str == ".":
-            return parent.name
         rel_parts = rel.parts
         if "Test1" in rel_parts:
             idx = rel_parts.index("Test1")
-            return "/".join(rel_parts[idx + 1 :])
-        return rel_str
+            return "__".join(rel_parts[idx + 1 :])
+        return "__".join(rel_parts)
     except ValueError:
         return parent.name
 
 def create_splits(
     data_dir: str,
     output_dir: str = "outputs/",
+    project_root: str = ".",
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
     test_ratio: float = 0.1,
@@ -50,6 +48,7 @@ def create_splits(
     if abs(train_ratio + val_ratio + test_ratio - 1.0) > 1e-6:
         raise ValueError("Split ratios must sum to 1.0")
 
+    proj_path = Path(project_root).resolve()
     data_path = Path(data_dir).resolve()
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -61,18 +60,39 @@ def create_splits(
         for f in files:
             ext = os.path.splitext(f)[1]
             if ext in VALID_EXTENSIONS:
-                full_path = os.path.join(root, f)
-                cls_name = extract_class_name(full_path, data_path)
-                class_groups[cls_name].append(full_path)
-                total_found += 1
+                abs_fpath = os.path.join(root, f)
+                try:
+                    rel_fpath = os.path.relpath(abs_fpath, start=proj_path)
+                except ValueError:
+                    rel_fpath = abs_fpath
+                
+                cls_name = extract_class_name(abs_fpath, data_path)
+                if cls_name and cls_name not in ("Guninthamulu", "hallulu", "achulu", "othulu"):
+                    class_groups[cls_name].append(rel_fpath)
+                    total_found += 1
 
     if total_found == 0:
         raise ValueError(f"No images found with valid extensions in {data_dir}")
 
-    unique_classes = sorted(list(class_groups.keys()))
+    # Load canonical 630 class names if exists, else sort unique
+    class_names_path = out_path / "class_names.json"
+    if class_names_path.exists():
+        with open(class_names_path, "r") as f:
+            canonical_classes = json.load(f)
+        unique_classes = [c for c in canonical_classes if c in class_groups]
+        # Append any remaining
+        for c in sorted(class_groups.keys()):
+            if c not in unique_classes:
+                unique_classes.append(c)
+    else:
+        unique_classes = sorted(list(class_groups.keys()))
+
     label_map = {cls: idx for idx, cls in enumerate(unique_classes)}
     with open(out_path / "label_map.json", "w") as f:
         json.dump(label_map, f, indent=4)
+        
+    with open(out_path / "class_names.json", "w") as f:
+        json.dump(unique_classes, f, indent=4)
 
     rng = np.random.RandomState(seed)
     train_data, val_data, test_data = [], [], []
@@ -138,17 +158,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", required=True)
     parser.add_argument("--output", default="outputs/")
+    parser.add_argument("--project_root", default=".")
     parser.add_argument("--train_ratio", type=float, default=0.8)
     parser.add_argument("--val_ratio", type=float, default=0.1)
     parser.add_argument("--test_ratio", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
-    create_splits(
+    stats = create_splits(
         data_dir=args.data_dir,
         output_dir=args.output,
+        project_root=args.project_root,
         train_ratio=args.train_ratio,
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,
         seed=args.seed,
     )
+    print(f"Splits generated successfully: {stats}")
