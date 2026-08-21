@@ -127,7 +127,7 @@ def load_hcr_model():
     return loaded_model, loaded_path, class_names
 
 
-def preprocess_canvas_image(img: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, Image.Image]:
+def preprocess_image(img: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, Image.Image]:
     gray = img.convert("L")
     arr = np.array(gray)
     
@@ -163,6 +163,10 @@ def preprocess_canvas_image(img: Image.Image, img_size: int = 96) -> Tuple[np.nd
 
 
 model, model_path, class_names = load_hcr_model()
+
+# Initialize session state for selected sample
+if "sample_image_path" not in st.session_state:
+    st.session_state["sample_image_path"] = None
 
 st.markdown('<div class="main-header">✍️ Telugu Handwritten Character Recognizer (v3)</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Deep Learning Character Recognition for 630 Telugu Aksharas (Achulu, Hallulu, Guninthamulu, Othulu)</div>', unsafe_allow_html=True)
@@ -222,18 +226,22 @@ with tab_draw:
             has_canvas = False
             st.warning("Install `streamlit-drawable-canvas` for interactive drawing.")
             
-        st.markdown("##### 💡 Try Example Samples:")
+        st.markdown("##### 💡 Instant Test with Dataset Samples:")
         col_s1, col_s2, col_s3 = st.columns(3)
-        load_sample = None
         with col_s1:
             if st.button("Sample: క (ka)", use_container_width=True):
-                load_sample = ROOT_DIR / "data_samples/telugu_image_samples/hallulu/ka/1.png"
+                st.session_state["sample_image_path"] = str(ROOT_DIR / "data_samples/telugu_image_samples/hallulu/ka/1.png")
         with col_s2:
             if st.button("Sample: అ (a)", use_container_width=True):
-                load_sample = ROOT_DIR / "data_samples/telugu_image_samples/achulu/a/1.jpg"
+                st.session_state["sample_image_path"] = str(ROOT_DIR / "data_samples/telugu_image_samples/achulu/a/1.jpg")
         with col_s3:
             if st.button("Sample: ణ (ana)", use_container_width=True):
-                load_sample = ROOT_DIR / "data_samples/telugu_image_samples/hallulu/ana/1.jpg"
+                st.session_state["sample_image_path"] = str(ROOT_DIR / "data_samples/telugu_image_samples/hallulu/ana/1.jpg")
+
+        if st.session_state["sample_image_path"]:
+            if st.button("🧹 Clear Sample / Reset to Canvas", use_container_width=True):
+                st.session_state["sample_image_path"] = None
+                st.rerun()
 
     with col_results:
         st.markdown("#### 🎯 Recognition Results:")
@@ -241,9 +249,10 @@ with tab_draw:
         has_drawing = False
         input_image = None
         
-        if load_sample and Path(load_sample).exists():
-            input_image = Image.open(load_sample)
+        if st.session_state.get("sample_image_path") and Path(st.session_state["sample_image_path"]).exists():
+            input_image = Image.open(st.session_state["sample_image_path"])
             has_drawing = True
+            st.caption(f"📁 Evaluating Dataset Sample: `{Path(st.session_state['sample_image_path']).name}`")
         elif has_canvas and canvas_result is not None and canvas_result.image_data is not None:
             raw_data = canvas_result.image_data
             if np.mean(raw_data[:, :, :3]) < 250 or np.any(raw_data[:, :, :3] < 100):
@@ -251,7 +260,7 @@ with tab_draw:
                 input_image = Image.fromarray(raw_data.astype("uint8")).convert("RGB")
                 
         if has_drawing and input_image is not None:
-            tensor_in, preproc_img = preprocess_canvas_image(input_image, img_size=96)
+            tensor_in, preproc_img = preprocess_image(input_image, img_size=96)
             
             if model is not None:
                 if len(model.input_shape) == 4 and model.input_shape[-1] == 3:
@@ -291,7 +300,7 @@ with tab_draw:
             with st.expander("🔍 Preprocessed 96×96 Input View"):
                 st.image(preproc_img, caption="What the Neural Network sees", width=120)
         else:
-            st.info("Draw a Telugu character on the canvas or click a sample above!")
+            st.info("Draw a Telugu character on the canvas or click a sample on the left!")
 
 with tab_upload:
     st.markdown("#### 📁 Upload Handwritten Telugu Image:")
@@ -305,7 +314,7 @@ with tab_upload:
             st.image(up_img, caption="Uploaded Image", width=250)
             
         with col_u2:
-            tensor_up, preproc_up = preprocess_canvas_image(up_img, img_size=96)
+            tensor_up, preproc_up = preprocess_image(up_img, img_size=96)
             if model is not None:
                 if len(model.input_shape) == 4 and model.input_shape[-1] == 3:
                     tensor_up = np.repeat(tensor_up, 3, axis=-1)
