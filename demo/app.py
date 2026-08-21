@@ -10,6 +10,15 @@ import numpy as np
 from PIL import Image, ImageOps, ImageFilter, ImageDraw, ImageFont
 import streamlit as st
 
+# Patch streamlit.elements.image for streamlit-drawable-canvas background_image compatibility
+try:
+    import streamlit.elements.image as sei
+    import streamlit.elements.lib.image_utils as iu
+    if not hasattr(sei, "image_to_url") and hasattr(iu, "image_to_url"):
+        sei.image_to_url = iu.image_to_url
+except Exception:
+    pass
+
 # Permanent thread-safe monkey-patch for Keras 3.11 in multi-threaded web servers
 try:
     import keras.src.backend.common.name_scope as ns
@@ -106,7 +115,7 @@ st.markdown("""
     }
     .guide-banner {
         background-color: #F0F9FF;
-        border: 1px dashed #38BDF8;
+        border: 1px dashed #0284C7;
         border-radius: 8px;
         padding: 10px;
         text-align: center;
@@ -182,8 +191,8 @@ def make_tracing_background(glyph_text: str, size: int = 300) -> Image.Image:
                 continue
                 
     if font:
-        # Draw clear, visible slate-gray outline
-        draw.text((size // 2, size // 2), glyph_text, font=font, fill=(165, 180, 200), anchor="mm")
+        # Clear visible light-slate guide line
+        draw.text((size // 2, size // 2), glyph_text, font=font, fill=(175, 190, 210), anchor="mm")
     return img
 
 
@@ -304,7 +313,7 @@ with tab_draw:
             bg_color = ""
             st.markdown(f"""
             <div class="guide-banner">
-                Trace over the faint <b>{char_to_draw}</b> outline in the canvas below!
+                ✏️ Trace over the faint <b>{char_to_draw}</b> outline in the canvas below!
             </div>
             """, unsafe_allow_html=True)
             
