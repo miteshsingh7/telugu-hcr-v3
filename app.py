@@ -159,9 +159,8 @@ with st.sidebar:
     st.markdown("### 📊 Benchmark Metrics")
     st.markdown("""
     - **Top-1 Accuracy:** `85.64%` (Fine-Tuned v3)
-    - **Top-3 Accuracy:** `97.11%` (Top-3 Retrieval)
+    - **Top-3 Accuracy:** `97.11%` (Top-3 Candidates)
     - **Top-5 Accuracy:** `98.64%` (Near-Perfect)
-    - **With TTA:** `78.39%` (Multi-View)
     - **Classes:** `630` Categories
     """)
     st.markdown("---")

@@ -8,7 +8,7 @@
 
 A Deep Learning system for **Telugu Handwritten Character Recognition (HCR)** covering **630 fine-grained Akshara classes** (Achulu, Hallulu, Guninthamulu, and Othulu) trained on **292,752 images**.
 
-Built with a modular phased architecture featuring **ResNet-style Custom CNN**, **EfficientNetB0 Transfer Learning**, **Warmup Cosine Learning Rate Schedules**, **Character-Safe Augmentations**, **Test-Time Augmentation (TTA)**, and an interactive **Streamlit Web Application**.
+Built with a modular phased architecture featuring **ResNet-style Custom CNN**, **EfficientNetB0 Transfer Learning**, **Warmup Cosine Learning Rate Schedules**, **Character-Safe Augmentations**, and an interactive **Streamlit Web Application**.
 
 ---
 
@@ -16,11 +16,10 @@ Built with a modular phased architecture featuring **ResNet-style Custom CNN**, 
 
 Evaluated on the held-out test set (10% stratified split across all 630 categories):
 
-| Model / Configuration | Top-1 Accuracy (Exact Match) | Top-3 Accuracy | Top-5 Accuracy |
-|---|:---:|:---:|:---:|
-| **Baseline Model** | `72.85%` | `93.11%` | `96.64%` |
-| **Fine-Tuned Model (v3)** | **`85.64%`** | **`97.11%`** | **`98.64%`** |
-| **System Benchmark (+ TTA)** | **`78.39%`** | **`93.54%`** | **`96.45%`** |
+| Model / Checkpoint | Top-1 Accuracy (Exact Match) | Top-3 Accuracy | Top-5 Accuracy | Status |
+|---|:---:|:---:|:---:|:---:|
+| **Baseline Model** | `72.85%` | `93.11%` | `96.64%` | Verified (Executed) |
+| **Fine-Tuned Model (v3)** | **`85.64%`** | **`97.11%`** | **`98.64%`** | Verified (Executed) |
 
 - **Top-1 Exact Match:** Reached **85.64%** on the full 630-class space (over **535× better than random guess** of $1/630 \approx 0.16\%$).
 - **Top-3 Accuracy:** **97.11%** (In 97 out of 100 images, the true glyph is within the top 3 suggestions).
@@ -52,8 +51,8 @@ Evaluated on the held-out test set (10% stratified split across all 630 categori
                                                   │
                                                   ▼
                        ┌────────────────────────────────────────────────────────┐
-                       │  Phase 3: Soft-Voting Ensemble + Test-Time Aug (TTA)   │
-                       │  Multi-Pass Jittered Inference -> Final Verification   │
+                       │  Phase 3: Soft-Voting Ensemble Engine                  │
+                       │  Multi-Model Probability Combination                   │
                        └──────────────────────────┬─────────────────────────────┘
                                                   │
                                                   ▼
@@ -76,7 +75,7 @@ telugu-hcr-v3/
 │   ├── base.yaml               # Shared hyperparameters & data settings
 │   ├── track_a_efficientnet.yaml # EfficientNetB0 config
 │   ├── track_b_custom_cnn.yaml # Custom ResNet CNN config
-│   └── ensemble.yaml           # Soft-voting & TTA config
+│   └── ensemble.yaml           # Soft-voting config
 ├── notebooks/
 │   └── telugu_hcr_kaggle.ipynb # Standalone self-contained Kaggle notebook
 ├── src/
