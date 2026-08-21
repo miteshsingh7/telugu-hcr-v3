@@ -125,7 +125,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner="Loading Telugu HCR Model...")
 def load_hcr_model():
     import tensorflow as tf
     
@@ -247,6 +247,17 @@ def get_base_letter(class_name: str) -> Tuple[str, str]:
     if cat == "achulu":
         v = parts[1].lower() if len(parts) > 1 else "a"
         return VOWELS.get(v, "అ"), f"Vowel '{v}'"
+    elif cat == "guninthamulu":
+        c = parts[1].lower() if len(parts) > 1 else "ka"
+        if c == "kha": return "క", "Consonant 'ka'"
+        elif c == "khh": return "ఖ", "Consonant 'kha'"
+        elif c == "ch": return "ఛ", "Consonant 'chha'"
+        elif c == "th": return "ఠ", "Consonant 'tha'"
+        elif c == "dh": return "ఢ", "Consonant 'dha'"
+        elif c == "sh": return "శ", "Consonant 'sha'"
+        elif c == "sha": return "ష", "Consonant 'ssha'"
+        elif c == "rr": return "ఱ", "Consonant 'rra'"
+        else: return CONSONANTS.get(parts[1], CONSONANTS.get(c, "క")), f"Consonant '{c}'"
     else:
         c = parts[1] if len(parts) > 1 else "ka"
         return CONSONANTS.get(c, CONSONANTS.get(c.lower(), "క")), f"Consonant '{c}'"
@@ -409,15 +420,19 @@ with tab_draw:
                 with col_b2:
                     st.progress(float(min(1.0, bconf)), text=f"{bconf*100:.1f}%")
                     
+            with st.expander("🔬 Priority 2 Debug View (Exact Array & Logits)"):
+                col_d1, col_d2 = st.columns([1, 2])
+                with col_d1:
+                    st.image(preproc_img, caption=f"Array shape: {tensor_in.shape}", width=120)
+                with col_d2:
+                    st.code(f"Top-1 Class Index: {top_indices[0]}\nClass Name: {top1_cls}\nRaw Probability: {preds[top_indices[0]]:.6f}")
+                    
             with st.expander("🔬 View Detailed 630-Class Diacritic Predictions"):
                 for rank, idx in enumerate(top_indices, 1):
                     c_name = class_names[idx]
                     glyph, desc, _ = map_class_to_telugu(c_name)
                     conf = preds[idx]
-                    st.write(f"#{rank} `{glyph}` ({desc}) — {conf*100:.1f}%")
-                    
-            with st.expander("🔍 Preprocessed 96×96 Input View"):
-                st.image(preproc_img, caption="Normalized Input fed into Neural Network", width=120)
+                    st.write(f"#{rank} `[Index {idx}] {glyph}` ({desc}) — {conf*100:.1f}%")
         else:
             st.info("Draw a character on the canvas on the left or select a sample from the Visual Gallery!")
 
