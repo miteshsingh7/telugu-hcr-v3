@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
-from PIL import Image, ImageOps, ImageFilter
+from PIL import Image, ImageOps, ImageFilter, ImageDraw, ImageFont
 import streamlit as st
 
 # Permanent thread-safe monkey-patch for Keras 3.11 in multi-threaded web servers
@@ -60,7 +60,7 @@ st.markdown("""
         margin-bottom: 15px;
     }
     .telugu-glyph {
-        font-size: 5rem;
+        font-size: 5.2rem;
         font-weight: bold;
         color: #15803D;
         line-height: 1.1;
@@ -152,6 +152,31 @@ def load_hcr_model():
     return loaded_model, loaded_path, class_names
 
 
+def make_tracing_background(glyph_text: str, size: int = 300) -> Image.Image:
+    img = Image.new("RGBA", (size, size), (255, 255, 255, 255))
+    if not glyph_text:
+        return img
+        
+    draw = ImageDraw.Draw(img)
+    font_paths = [
+        "/System/Library/Fonts/Supplemental/KohinoorTelugu.ttc",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/Library/Fonts/Arial Unicode.ttf"
+    ]
+    font = None
+    for fp in font_paths:
+        if os.path.exists(fp):
+            try:
+                font = ImageFont.truetype(fp, 150)
+                break
+            except Exception:
+                continue
+                
+    if font:
+        draw.text((size // 2, size // 2), glyph_text, font=font, fill=(215, 220, 230, 255), anchor="mm")
+    return img
+
+
 def preprocess_image(img: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, Image.Image]:
     gray = img.convert("L")
     arr = np.array(gray)
@@ -196,17 +221,15 @@ def predict_character(model, tensor_in: np.ndarray) -> np.ndarray:
     return preds
 
 
-def extract_root_grapheme(class_name: str) -> Tuple[str, str]:
+def get_base_letter(class_name: str) -> Tuple[str, str]:
     parts = class_name.replace("/", "__").split("__")
-    category = parts[0].lower()
-    if category == "achulu":
-        v = parts[1] if len(parts) > 1 else "a"
-        glyph = VOWELS.get(v.lower(), "అ")
-        return glyph, f"Vowel '{v}'"
+    cat = parts[0].lower()
+    if cat == "achulu":
+        v = parts[1].lower() if len(parts) > 1 else "a"
+        return VOWELS.get(v, "అ"), f"Vowel '{v}'"
     else:
         c = parts[1] if len(parts) > 1 else "ka"
-        glyph = CONSONANTS.get(c, CONSONANTS.get(c.lower(), "క"))
-        return glyph, f"Consonant '{c}'"
+        return CONSONANTS.get(c, CONSONANTS.get(c.lower(), "క")), f"Consonant '{c}'"
 
 
 model, model_path, class_names = load_hcr_model()
@@ -251,7 +274,20 @@ with tab_draw:
     
     with col_canvas:
         st.markdown("#### 🖌️ Draw a Telugu Character:")
-        pen_width = st.slider("Pen Thickness:", min_value=3, max_value=16, value=6, step=1)
+        
+        c_opt1, c_opt2 = st.columns([1, 1])
+        with c_opt1:
+            pen_width = st.slider("Pen Thickness:", min_value=3, max_value=16, value=6, step=1)
+        with c_opt2:
+            trace_choice = st.selectbox(
+                "Faint Tracing Guide (Optional):",
+                ["None", "క (ka)", "అ (a)", "ఆ (aa)", "ల (la)", "ర (ra)", "ప (pa)", "మ (ma)", "ణ (ana)", "చ (cha)", "ట (ta)"]
+            )
+            
+        bg_image = None
+        if trace_choice != "None":
+            char_to_draw = trace_choice.split(" ")[0]
+            bg_image = make_tracing_background(char_to_draw, size=300)
             
         try:
             from streamlit_drawable_canvas import st_canvas
@@ -261,10 +297,11 @@ with tab_draw:
                 stroke_width=pen_width,
                 stroke_color="#000000",
                 background_color="#FFFFFF",
+                background_image=bg_image,
                 height=300,
                 width=300,
                 drawing_mode="freedraw",
-                key="telugu_main_canvas",
+                key=f"canvas_pad_{trace_choice}",
             )
             has_canvas = True
         except ImportError:
@@ -313,34 +350,44 @@ with tab_draw:
                 preds[1] = 0.08
                 preds[2] = 0.04
                 
+            # 1. Primary Base Letter Aggregation (Hierarchical)
+            base_scores = {}
+            for i, p in enumerate(preds):
+                base_glyph, base_desc = get_base_letter(class_names[i])
+                base_scores[base_glyph] = base_scores.get(base_glyph, 0.0) + float(p)
+                
+            sorted_bases = sorted(base_scores.items(), key=lambda x: x[1], reverse=True)[:3]
+            top_base_glyph, top_base_conf = sorted_bases[0]
+            
+            # 2. Exact 630 Diacritic Candidates
             top_indices = np.argsort(preds)[::-1][:5]
             top1_cls = class_names[top_indices[0]]
             top1_glyph, top1_desc, top1_cat = map_class_to_telugu(top1_cls)
             top1_conf = preds[top_indices[0]] * 100
             
-            # Root Family Calculation
-            root_glyph, root_desc = extract_root_grapheme(top1_cls)
-            root_conf = sum(preds[i] for i in top_indices if extract_root_grapheme(class_names[i])[0] == root_glyph) * 100
-            
             st.markdown(f"""
             <div class="glyph-box">
-                <div class="telugu-glyph">{top1_glyph}</div>
-                <div class="glyph-name">{top1_desc}</div>
-                <div class="glyph-category">{top1_cat} • Exact: {top1_conf:.1f}% | Root Family: {root_conf:.1f}%</div>
+                <div style="font-size: 1.1rem; color: #166534; font-weight: 600; text-transform: uppercase;">Identified Base Letter:</div>
+                <div class="telugu-glyph">{top_base_glyph}</div>
+                <div class="glyph-name">Root Letter Confidence: {top_base_conf*100:.1f}%</div>
+                <div class="glyph-category">Exact Diacritic Form: {top1_glyph} ({top1_desc}) • {top1_conf:.1f}%</div>
             </div>
             """, unsafe_allow_html=True)
             
-            st.markdown("##### 🏆 Top Candidate Glyphs:")
-            for rank, idx in enumerate(top_indices, 1):
-                c_name = class_names[idx]
-                glyph, desc, cat = map_class_to_telugu(c_name)
-                conf = preds[idx]
-                
-                col_r1, col_r2 = st.columns([1.2, 3.8])
-                with col_r1:
-                    st.markdown(f"**#{rank} &nbsp; `{glyph}`** ({desc})")
-                with col_r2:
-                    st.progress(float(min(1.0, conf)), text=f"{conf*100:.1f}%")
+            st.markdown("##### 🏆 Primary Letter Candidates (Top-3):")
+            for rank, (bglyph, bconf) in enumerate(sorted_bases, 1):
+                col_b1, col_b2 = st.columns([1.2, 3.8])
+                with col_b1:
+                    st.markdown(f"**#{rank} &nbsp; `{bglyph}`**")
+                with col_b2:
+                    st.progress(float(min(1.0, bconf)), text=f"{bconf*100:.1f}%")
+                    
+            with st.expander("🔬 View Detailed 630-Class Diacritic Predictions"):
+                for rank, idx in enumerate(top_indices, 1):
+                    c_name = class_names[idx]
+                    glyph, desc, _ = map_class_to_telugu(c_name)
+                    conf = preds[idx]
+                    st.write(f"#{rank} `{glyph}` ({desc}) — {conf*100:.1f}%")
                     
             with st.expander("🔍 Preprocessed 96×96 Input View"):
                 st.image(preproc_img, caption="Normalized Input fed into Neural Network", width=120)
