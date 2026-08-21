@@ -143,6 +143,8 @@ def load_hcr_model():
     import tensorflow as tf
     
     model_paths = [
+        ROOT_DIR / "checkpoints/multitask_mobilenet_best.keras",
+        ROOT_DIR / "checkpoints/hierarchical_best.keras",
         ROOT_DIR / "checkpoints/telugu_v3_best.keras",
         ROOT_DIR / "checkpoints/track_b_best.keras",
         ROOT_DIR / "checkpoints/track_b_custom_cnn/best_model/model.keras",
