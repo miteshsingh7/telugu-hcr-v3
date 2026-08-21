@@ -196,29 +196,42 @@ def make_tracing_background(glyph_text: str, size: int = 300) -> Image.Image:
 
 
 def preprocess_image(img_pil: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, Image.Image]:
-    """Matches the exact v2 training pipeline preprocessing:
-    Grayscale -> Pad to square (white 255) -> INTER_AREA resize to 96x96 -> float32/255.0
+    """MNIST-style centered bounding-box normalization with stroke thickness normalization.
+    Centers glyph to 70% of 96x96 box to prevent white-background prior collapse.
     """
     img = np.array(img_pil.convert("L"))
     
-    # Ensure white background
     if np.mean(img) < 127:
         img = 255 - img
         
-    h, w = img.shape[:2]
-    if h != w:
-        size = max(h, w)
-        top = (size - h) // 2
-        bottom = size - h - top
-        left = (size - w) // 2
-        right = size - w - left
-        img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=255)
+    ink_mask = (img < 210).astype(np.uint8) * 255
+    if np.any(ink_mask > 0):
+        coords = cv2.findNonZero(ink_mask)
+        x, y, w, h = cv2.boundingRect(coords)
+        cropped = img[y:y+h, x:x+w]
         
-    interp = cv2.INTER_AREA if img_size <= max(h, w) else cv2.INTER_CUBIC
-    img_resized = cv2.resize(img, (img_size, img_size), interpolation=interp)
-    arr = img_resized.astype("float32") / 255.0
+        target_size = int(img_size * 0.70)
+        scale = target_size / max(w, h)
+        nw = max(4, int(w * scale))
+        nh = max(4, int(h * scale))
+        
+        resized = cv2.resize(cropped, (nw, nh), interpolation=cv2.INTER_AREA)
+        
+        ink_only = (resized < 210).astype(np.uint8) * 255
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        dilated = cv2.dilate(ink_only, kernel, iterations=1)
+        smoothed = cv2.GaussianBlur(dilated, (3, 3), 0.6)
+        
+        canvas = np.full((img_size, img_size), 255, dtype=np.uint8)
+        off_x = (img_size - nw) // 2
+        off_y = (img_size - nh) // 2
+        canvas[off_y:off_y+nh, off_x:off_x+nw] = 255 - smoothed
+    else:
+        canvas = np.full((img_size, img_size), 255, dtype=np.uint8)
+        
+    arr = canvas.astype("float32") / 255.0
     tensor = np.expand_dims(np.expand_dims(arr, -1), 0)
-    return tensor, Image.fromarray(img_resized)
+    return tensor, Image.fromarray(canvas)
 
 
 def predict_character(model, tensor_in: np.ndarray) -> np.ndarray:
