@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
-from PIL import Image, ImageOps, ImageFilter, ImageDraw
+from PIL import Image, ImageOps, ImageFilter
 import streamlit as st
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -79,16 +79,13 @@ st.markdown("""
         font-size: 0.85rem;
         color: #64748B;
     }
-    .ref-badge {
-        font-size: 1.4rem;
-        font-weight: 600;
-        background: #EFF6FF;
-        border: 1px solid #BFDBFE;
+    .gallery-card {
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
         border-radius: 8px;
-        padding: 6px 12px;
+        padding: 8px;
         text-align: center;
-        display: inline-block;
-        margin: 3px;
+        margin-bottom: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -201,28 +198,18 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("Developed with **TensorFlow / Keras & Streamlit**")
 
-tab_draw, tab_upload, tab_explorer, tab_metrics = st.tabs([
-    "🎨 Draw Character", "📁 Upload Image", "📖 630 Character Explorer", "📊 Architecture & Metrics"
+tab_draw, tab_gallery, tab_upload, tab_explorer, tab_metrics = st.tabs([
+    "🎨 Draw Character", "🖼️ Visual Sample Gallery", "📁 Upload Image", "📖 630 Character Explorer", "📊 Architecture & Metrics"
 ])
 
+# ----------------- TAB 1: DRAW -----------------
 with tab_draw:
     col_canvas, col_results = st.columns([1.1, 1.2])
     
     with col_canvas:
         st.markdown("#### 🖌️ Draw a Telugu Character:")
         
-        col_ctrl1, col_ctrl2 = st.columns([1, 1])
-        with col_ctrl1:
-            pen_width = st.slider("Pen Thickness:", min_value=3, max_value=16, value=5, step=1)
-        with col_ctrl2:
-            tracing_guide = st.selectbox("Faint Tracing Guide (Optional):", ["None", "క (ka)", "అ (a)", "ణ (ana)", "ల (la)", "ర (ra)"])
-            
-        bg_image = None
-        if tracing_guide != "None":
-            # Create a faint watermark guide on 300x300 canvas
-            guide_glyph = tracing_guide.split(" ")[0]
-            bg_pil = Image.new("RGBA", (300, 300), (255, 255, 255, 255))
-            bg_image = bg_pil
+        pen_width = st.slider("Pen Thickness:", min_value=3, max_value=16, value=5, step=1)
             
         try:
             from streamlit_drawable_canvas import st_canvas
@@ -232,53 +219,21 @@ with tab_draw:
                 stroke_width=pen_width,
                 stroke_color="#000000",
                 background_color="#FFFFFF",
-                background_image=bg_image,
                 height=300,
                 width=300,
                 drawing_mode="freedraw",
-                key="telugu_canvas_drawing_pad",
+                key="telugu_main_canvas",
             )
             has_canvas = True
         except ImportError:
             has_canvas = False
             st.warning("Install `streamlit-drawable-canvas` for interactive drawing.")
             
-        st.markdown("##### 💡 Instant Test with Dataset Samples:")
-        col_s1, col_s2, col_s3 = st.columns(3)
-        with col_s1:
-            if st.button("Sample: క (ka)", use_container_width=True):
-                st.session_state["sample_image_path"] = str(ROOT_DIR / "data_samples/telugu_image_samples/hallulu/ka/1.png")
-        with col_s2:
-            if st.button("Sample: అ (a)", use_container_width=True):
-                st.session_state["sample_image_path"] = str(ROOT_DIR / "data_samples/telugu_image_samples/achulu/a/1.jpg")
-        with col_s3:
-            if st.button("Sample: ణ (ana)", use_container_width=True):
-                st.session_state["sample_image_path"] = str(ROOT_DIR / "data_samples/telugu_image_samples/hallulu/ana/1.jpg")
-
-        if st.session_state["sample_image_path"]:
-            if st.button("🧹 Clear Sample / Reset to Canvas", use_container_width=True):
+        if st.session_state.get("sample_image_path"):
+            st.info(f"Currently viewing sample: `{Path(st.session_state['sample_image_path']).name}`")
+            if st.button("🧹 Clear Selected Sample / Return to Canvas", use_container_width=True):
                 st.session_state["sample_image_path"] = None
                 st.rerun()
-
-        st.markdown("##### 📖 Reference Telugu Alphabet Shapes:")
-        st.markdown("""
-        <div style="line-height: 2.2;">
-            <span class="ref-badge">అ (a)</span>
-            <span class="ref-badge">ఆ (aa)</span>
-            <span class="ref-badge">క (ka)</span>
-            <span class="ref-badge">గ (ga)</span>
-            <span class="ref-badge">చ (cha)</span>
-            <span class="ref-badge">ట (ta)</span>
-            <span class="ref-badge">త (tha)</span>
-            <span class="ref-badge">న (na)</span>
-            <span class="ref-badge">ప (pa)</span>
-            <span class="ref-badge">మ (ma)</span>
-            <span class="ref-badge">య (ya)</span>
-            <span class="ref-badge">ర (ra)</span>
-            <span class="ref-badge">ల (la)</span>
-            <span class="ref-badge">వ (va)</span>
-        </div>
-        """, unsafe_allow_html=True)
 
     with col_results:
         st.markdown("#### 🎯 Recognition Results:")
@@ -289,7 +244,7 @@ with tab_draw:
         if st.session_state.get("sample_image_path") and Path(st.session_state["sample_image_path"]).exists():
             input_image = Image.open(st.session_state["sample_image_path"])
             has_drawing = True
-            st.caption(f"📁 Evaluating Dataset Sample: `{Path(st.session_state['sample_image_path']).name}`")
+            st.caption(f"📁 Dataset Image: `{Path(st.session_state['sample_image_path']).name}`")
         elif has_canvas and canvas_result is not None and canvas_result.image_data is not None:
             raw_data = canvas_result.image_data
             if np.mean(raw_data[:, :, :3]) < 250 or np.any(raw_data[:, :, :3] < 100):
@@ -337,8 +292,40 @@ with tab_draw:
             with st.expander("🔍 Preprocessed 96×96 Input View"):
                 st.image(preproc_img, caption="What the Neural Network sees", width=120)
         else:
-            st.info("Draw a Telugu character on the canvas or click a sample on the left!")
+            st.info("Draw a Telugu character on the canvas or pick a sample from the Visual Gallery!")
 
+
+# ----------------- TAB 2: VISUAL SAMPLE GALLERY -----------------
+with tab_gallery:
+    st.markdown("#### 🖼️ Visual Character Image Gallery (Click any image to test):")
+    st.caption("Browse actual handwritten images from the dataset. Click 'Test this Character' on any card to evaluate it instantly!")
+    
+    gallery_dir = ROOT_DIR / "data_samples/sample_gallery"
+    if gallery_dir.exists():
+        gallery_images = sorted(list(gallery_dir.glob("*.*")))
+        
+        # Display in a 4-column responsive image grid
+        cols = st.columns(4)
+        for i, img_path in enumerate(gallery_images):
+            col = cols[i % 4]
+            cls_name = img_path.stem
+            glyph, desc, cat = map_class_to_telugu(cls_name)
+            
+            with col:
+                st.markdown(f"""
+                <div class="gallery-card">
+                    <div style="font-size: 2.2rem; font-weight: bold; color: #1E3A8A;">{glyph}</div>
+                    <div style="font-size: 0.85rem; color: #4B5563;">{desc}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                st.image(str(img_path), width=100)
+                if st.button(f"🚀 Test `{glyph}`", key=f"btn_gal_{i}", use_container_width=True):
+                    st.session_state["sample_image_path"] = str(img_path)
+                    st.toast(f"Loaded sample for {glyph} ({desc})! Go to 'Draw Character' tab to see prediction.")
+                    st.rerun()
+
+
+# ----------------- TAB 3: UPLOAD -----------------
 with tab_upload:
     st.markdown("#### 📁 Upload Handwritten Telugu Image:")
     uploaded_file = st.file_uploader("Upload a handwritten image (PNG, JPG, BMP)", type=["png", "jpg", "jpeg", "bmp"])
@@ -381,6 +368,8 @@ with tab_upload:
                 conf = up_preds[idx]
                 st.progress(float(min(1.0, conf)), text=f"#{rank} {glyph} ({desc}) — {conf*100:.1f}%")
 
+
+# ----------------- TAB 4: EXPLORER -----------------
 with tab_explorer:
     st.markdown("#### 📖 630 Telugu Character Database Explorer:")
     st.caption("Browse through the complete Telugu handwriting vocabulary supported by this model.")
@@ -395,6 +384,8 @@ with tab_explorer:
             
     st.dataframe(explorer_items, width="stretch", height=450)
 
+
+# ----------------- TAB 5: METRICS -----------------
 with tab_metrics:
     st.markdown("#### 📊 System Architecture & Performance Metrics")
     
