@@ -24,7 +24,48 @@ from src.data.decomposition import decompose_class_name, export_grapheme_maps
 from src.models.hierarchical_net import build_multitask_model, compile_multitask_model
 
 
-def resolve_data_paths() -> Tuple[str, str, str]:
+def find_dataset_root() -> Path:
+    """Searches /kaggle/input and local filesystem for the Telugu images folder."""
+    search_roots = [
+        Path("/kaggle/input"),
+        PROJ_ROOT / "data",
+        PROJ_ROOT,
+        Path("."),
+    ]
+    for root in search_roots:
+        if not root.exists():
+            continue
+        for match in root.glob("**/Guninthamulu"):
+            dataset_root = match.parent
+            print(f"✅ Found dataset images directory: {dataset_root}")
+            return dataset_root
+    return None
+
+
+def resolve_image_path(raw_path: str, dataset_root: Path) -> str:
+    """Remaps raw CSV path to discovered Kaggle/local dataset location."""
+    p = Path(raw_path)
+    if p.exists():
+        return str(p)
+        
+    if dataset_root:
+        parts = p.parts
+        for idx, part in enumerate(parts):
+            if "Final Dataset" in part or part in ("Test1", "Train", "Guninthamulu", "Achulu", "Hallulu", "Othulu"):
+                subpath = Path(*parts[idx:])
+                candidate1 = dataset_root / subpath
+                if candidate1.exists():
+                    return str(candidate1)
+                candidate2 = dataset_root.parent / subpath
+                if candidate2.exists():
+                    return str(candidate2)
+                candidate3 = dataset_root / Path(*parts[idx+1:])
+                if candidate3.exists():
+                    return str(candidate3)
+    return str(p)
+
+
+def resolve_data_paths() -> Tuple[str, str]:
     """Finds train.csv, val.csv, and dataset root in Kaggle or local directory."""
     kaggle_paths = [
         Path("/kaggle/input/telugu-hcr-v3"),
@@ -56,10 +97,12 @@ def build_multitask_dataset(
     csv_path: str,
     img_size: int = 96,
     num_channels: int = 1,
-    batch_size: int = 64,
+    batch_size: int = 128,
     training: bool = True,
 ) -> tf.data.Dataset:
     """Builds a tf.data.Dataset yielding (image_tensor, {base, modifier, vattu})."""
+    dataset_root = find_dataset_root()
+    
     filepaths = []
     base_labels = []
     mod_labels = []
@@ -68,7 +111,8 @@ def build_multitask_dataset(
     with open(csv_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            fpath = row["filepath"]
+            raw_fpath = row["filepath"]
+            fpath = resolve_image_path(raw_fpath, dataset_root)
             cname = row["class_name"]
             b_idx, m_idx, v_idx = decompose_class_name(cname)
             
@@ -79,6 +123,12 @@ def build_multitask_dataset(
             
     num_samples = len(filepaths)
     print(f"Loaded {num_samples:,} samples from {Path(csv_path).name}")
+    
+    # Check first image existence
+    first_path = Path(filepaths[0])
+    if not first_path.exists():
+        print(f"\n❌ CRITICAL: Image file not found: {first_path}")
+        print("👉 In your Kaggle notebook, click '+ Add Input' on the top-right and add the Telugu dataset (or upload the dataset zip) so the images are present in /kaggle/input/!\n")
 
     ds = tf.data.Dataset.from_tensor_slices((
         filepaths,
