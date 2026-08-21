@@ -10,7 +10,7 @@ venv/
 ENV/
 
 # Checkpoints & Large Data (Use Git LFS or HuggingFace / Kaggle Datasets for model weights)
-data/
+/data/
 *.zip
 *.tar.gz
 *.keras
