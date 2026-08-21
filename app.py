@@ -191,48 +191,34 @@ def make_tracing_background(glyph_text: str, size: int = 300) -> Image.Image:
                 continue
                 
     if font:
-        # Clear visible light-slate guide line
         draw.text((size // 2, size // 2), glyph_text, font=font, fill=(175, 190, 210), anchor="mm")
     return img
 
 
-def preprocess_image(img: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, Image.Image]:
-    gray = img.convert("L")
-    arr = np.array(gray)
+def preprocess_image(img_pil: Image.Image, img_size: int = 96) -> Tuple[np.ndarray, Image.Image]:
+    """Matches the exact v2 training pipeline preprocessing:
+    Grayscale -> Pad to square (white 255) -> INTER_AREA resize to 96x96 -> float32/255.0
+    """
+    img = np.array(img_pil.convert("L"))
     
-    if np.mean(arr) < 127:
-        arr = 255 - arr
+    # Ensure white background
+    if np.mean(img) < 127:
+        img = 255 - img
         
-    ink_mask = (arr < 140).astype(np.uint8) * 255
-    if not np.any(ink_mask > 0):
-        ink_mask = (arr < 220).astype(np.uint8) * 255
-    
-    if np.any(ink_mask > 0):
-        coords = cv2.findNonZero(ink_mask)
-        x, y, w, h = cv2.boundingRect(coords)
-        cropped = ink_mask[y:y+h, x:x+w]
+    h, w = img.shape[:2]
+    if h != w:
+        size = max(h, w)
+        top = (size - h) // 2
+        bottom = size - h - top
+        left = (size - w) // 2
+        right = size - w - left
+        img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=255)
         
-        target_size = int(img_size * 0.70)
-        scale = target_size / max(w, h)
-        new_w = max(2, int(w * scale))
-        new_h = max(2, int(h * scale))
-        
-        resized_ink = cv2.resize(cropped, (new_w, new_h), interpolation=cv2.INTER_AREA)
-        
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        dilated_ink = cv2.dilate(resized_ink, kernel, iterations=1)
-        blurred_ink = cv2.GaussianBlur(dilated_ink, (3, 3), 0.8)
-        
-        final_canvas = np.full((img_size, img_size), 255, dtype=np.uint8)
-        off_x = (img_size - new_w) // 2
-        off_y = (img_size - new_h) // 2
-        final_canvas[off_y:off_y+new_h, off_x:off_x+new_w] = 255 - blurred_ink
-    else:
-        final_canvas = np.full((img_size, img_size), 255, dtype=np.uint8)
-        
-    arr_norm = final_canvas.astype(np.float32) / 255.0
-    tensor = np.expand_dims(np.expand_dims(arr_norm, -1), 0)
-    return tensor, Image.fromarray(final_canvas)
+    interp = cv2.INTER_AREA if img_size <= max(h, w) else cv2.INTER_CUBIC
+    img_resized = cv2.resize(img, (img_size, img_size), interpolation=interp)
+    arr = img_resized.astype("float32") / 255.0
+    tensor = np.expand_dims(np.expand_dims(arr, -1), 0)
+    return tensor, Image.fromarray(img_resized)
 
 
 def predict_character(model, tensor_in: np.ndarray) -> np.ndarray:
@@ -298,7 +284,7 @@ with tab_draw:
         
         c_opt1, c_opt2 = st.columns([1, 1])
         with c_opt1:
-            pen_width = st.slider("Pen Thickness:", min_value=3, max_value=16, value=6, step=1)
+            pen_width = st.slider("Pen Thickness:", min_value=3, max_value=20, value=8, step=1)
         with c_opt2:
             trace_choice = st.selectbox(
                 "Tracing Template (Overlay on Canvas):",
