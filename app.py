@@ -588,29 +588,83 @@ with tab_upload:
             if model is None:
                 st.error("🚨 Inference unavailable: No trained neural network is loaded.")
             else:
-                img_size = model.input_shape[1] if model.input_shape[1] is not None else 96
-                tensor_up, preproc_up = numpy_canonical_preprocess(up_img, img_size=img_size, num_channels=1)
+                shape = model.input_shape
+                img_size = shape[1] if shape[1] is not None else 96
+                num_channels = shape[-1] if shape[-1] is not None else 1
+                normalize_mode = "imagenet" if num_channels == 3 else "rescale"
+                
+                tensor_up, preproc_up = numpy_canonical_preprocess(
+                    up_img,
+                    img_size=img_size,
+                    num_channels=num_channels,
+                    normalize_mode=normalize_mode,
+                )
                 up_preds = predict_character(model, tensor_up)
                 
-                top_up_indices = np.argsort(up_preds)[::-1][:5]
-                up_top1_cls = class_names[top_up_indices[0]]
-                up_glyph, up_desc, up_cat = map_class_to_telugu(up_top1_cls)
-                up_conf = up_preds[top_up_indices[0]] * 100
-                
-                st.markdown(f"""
-                <div class="glyph-box">
-                    <div class="telugu-glyph">{up_glyph}</div>
-                    <div class="glyph-name">{up_desc}</div>
-                    <div class="glyph-category">{up_cat} • Confidence: {up_conf:.1f}%</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown("##### Top Predictions:")
-                for rank, idx in enumerate(top_up_indices, 1):
-                    c_name = class_names[idx]
-                    glyph, desc, _ = map_class_to_telugu(c_name)
-                    conf = up_preds[idx]
-                    st.progress(float(min(1.0, conf)), text=f"#{rank} {glyph} ({desc}) — {conf*100:.1f}%")
+                if isinstance(up_preds, dict):
+                    base_p = up_preds["base"]
+                    mod_p = up_preds["modifier"]
+                    vattu_p = up_preds.get("vattu", None)
+                    
+                    maps_path = Path("outputs/grapheme_maps.json")
+                    if maps_path.exists():
+                        with open(maps_path, "r", encoding="utf-8") as f:
+                            g_maps = json.load(f)
+                        base_letters = g_maps["base_letters"]
+                        vowel_mods = g_maps["vowel_modifiers"]
+                    else:
+                        from src.data.decomposition import BASE_LETTERS, VOWEL_MODIFIERS
+                        base_letters = BASE_LETTERS
+                        vowel_mods = VOWEL_MODIFIERS
+                    
+                    top_b_idx = int(np.argmax(base_p))
+                    top_b_glyph = base_letters[top_b_idx] if top_b_idx < len(base_letters) else "క"
+                    top_b_conf = float(base_p[top_b_idx])
+                    
+                    top_m_idx = int(np.argmax(mod_p))
+                    top_m_name = vowel_mods[top_m_idx] if top_m_idx < len(vowel_mods) else "none"
+                    top_m_conf = float(mod_p[top_m_idx])
+                    
+                    top_b_ranks = np.argsort(base_p)[::-1][:3]
+                    
+                    st.markdown(f"""
+                    <div class="glyph-box">
+                        <div style="font-size: 1.1rem; color: #166534; font-weight: 600; text-transform: uppercase;">Identified Telugu Letter (Uploaded Image):</div>
+                        <div class="telugu-glyph">{top_b_glyph}</div>
+                        <div class="glyph-name">Base Akshara: {top_b_glyph} ({top_b_conf*100:.1f}% Confidence)</div>
+                        <div class="glyph-category">Vowel Sign: {top_m_name} ({top_m_conf*100:.1f}%)</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("##### 🏆 Primary Letter Candidates (Top-3):")
+                    for rank, b_i in enumerate(top_b_ranks, 1):
+                        b_glyph = base_letters[b_i] if b_i < len(base_letters) else "?"
+                        b_c = float(base_p[b_i])
+                        col_b1, col_b2 = st.columns([1.5, 3.5])
+                        with col_b1:
+                            st.markdown(f"**#{rank} &nbsp; `{b_glyph}`**")
+                        with col_b2:
+                            st.progress(float(min(1.0, b_c)), text=f"{b_c*100:.1f}%")
+                else:
+                    top_up_indices = np.argsort(up_preds)[::-1][:5]
+                    up_top1_cls = class_names[top_up_indices[0]]
+                    up_glyph, up_desc, up_cat = map_class_to_telugu(up_top1_cls)
+                    up_conf = up_preds[top_up_indices[0]] * 100
+                    
+                    st.markdown(f"""
+                    <div class="glyph-box">
+                        <div class="telugu-glyph">{up_glyph}</div>
+                        <div class="glyph-name">{up_desc}</div>
+                        <div class="glyph-category">{up_cat} • Confidence: {up_conf:.1f}%</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("##### Top Predictions:")
+                    for rank, idx in enumerate(top_up_indices, 1):
+                        c_name = class_names[idx]
+                        glyph, desc, _ = map_class_to_telugu(c_name)
+                        conf = up_preds[idx]
+                        st.progress(float(min(1.0, conf)), text=f"#{rank} {glyph} ({desc}) — {conf*100:.1f}%")
 
 
 # ----------------- TAB 4: EXPLORER -----------------

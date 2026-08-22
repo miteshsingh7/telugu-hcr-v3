@@ -13,8 +13,8 @@ import tensorflow as tf
 def get_background_fill_value(normalize_mode: str = "rescale", num_channels: int = 1) -> float:
     """Computes the exact numerical background fill value for white paper."""
     if normalize_mode == "imagenet":
-        # White (255.0) minus ImageNet RGB mean (123.68, 116.78, 103.94) ≈ +131.32
-        return 131.32
+        # White (255.0) minus ImageNet RGB 3-channel mean (123.68, 116.78, 103.94) = (131.32 + 138.22 + 151.06) / 3 ≈ +140.20
+        return 140.20
     else:
         # Rescale mode [0.0, 1.0]: White background = 1.0
         return 1.0

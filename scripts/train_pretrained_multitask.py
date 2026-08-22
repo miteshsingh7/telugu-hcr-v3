@@ -108,9 +108,9 @@ def build_pretrained_multitask_model(
 
     # 🚀 GPU-Accelerated Augmentation Layer (runs in 1.4ms on GPU batches, 0% CPU bottleneck)
     aug = tf.keras.Sequential([
-        layers.RandomRotation(0.02, fill_mode="constant", fill_value=131.32, name="gpu_aug_rot"),
-        layers.RandomTranslation(0.04, 0.04, fill_mode="constant", fill_value=131.32, name="gpu_aug_trans"),
-        layers.RandomZoom(0.04, fill_mode="constant", fill_value=131.32, name="gpu_aug_zoom"),
+        layers.RandomRotation(0.02, fill_mode="constant", fill_value=140.20, name="gpu_aug_rot"),
+        layers.RandomTranslation(0.04, 0.04, fill_mode="constant", fill_value=140.20, name="gpu_aug_trans"),
+        layers.RandomZoom(0.04, fill_mode="constant", fill_value=140.20, name="gpu_aug_zoom"),
     ], name="gpu_augmentation")
 
     x_aug = aug(inputs)
