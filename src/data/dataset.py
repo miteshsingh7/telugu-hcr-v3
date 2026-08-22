@@ -68,7 +68,11 @@ def build_dataset(
 
     if training:
         aug_config = config.get("augmentation", {})
-        aug_fn = build_augmentation_fn(aug_config)
+        aug_fn = build_augmentation_fn(
+            aug_config,
+            normalize_mode=normalize_mode,
+            num_channels=num_channels,
+        )
         dataset = dataset.map(aug_fn, num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.shuffle(buffer_size=min(len(filepaths), 10000))
 

@@ -66,3 +66,34 @@ class SoftVotingEnsemble:
         """Returns class index with highest ensemble probability."""
         proba = self.predict_proba(x)
         return np.argmax(proba, axis=-1)
+
+    def predict_from_csv(
+        self,
+        csv_path: str,
+        label_map: dict,
+        batch_size: int = 64,
+    ) -> np.ndarray:
+        """Evaluates heterogeneous models on a CSV manifest by building per-model datasets."""
+        from src.data.dataset import build_dataset
+        
+        preds = []
+        for model in self.models:
+            shape = model.input_shape
+            img_size = shape[1] if shape[1] is not None else 96
+            num_channels = shape[-1] if shape[-1] is not None else 1
+            normalize_mode = "imagenet" if num_channels == 3 else "rescale"
+
+            cfg = {
+                "image_size": img_size,
+                "num_channels": num_channels,
+                "normalize_mode": normalize_mode,
+                "batch_size": batch_size,
+            }
+            ds = build_dataset(csv_path, label_map, cfg, training=False)
+            p = model.predict(ds, verbose=0)
+            if isinstance(p, dict):
+                p = p.get("base_output", list(p.values())[0])
+            preds.append(p)
+
+        weighted_preds = sum(w * p for w, p in zip(self.weights, preds))
+        return weighted_preds

@@ -17,10 +17,24 @@ logger = logging.getLogger(__name__)
 def predict_with_tta(
     model: tf.keras.Model,
     dataset: tf.data.Dataset,
-    tta_config: Dict[str, Any],
+    tta_config: Dict[str, Any] = None,
     num_augmentations: int = 5,
+    normalize_mode: str = None,
+    num_channels: int = None,
 ) -> np.ndarray:
-    tta_fn = build_tta_augmentation_fn(tta_config)
+    tta_config = tta_config or {}
+    
+    # Auto-detect channels and normalization from model if not explicitly provided
+    if num_channels is None:
+        num_channels = model.input_shape[-1] if len(model.input_shape) == 4 else 1
+    if normalize_mode is None:
+        normalize_mode = "imagenet" if num_channels == 3 else "rescale"
+
+    tta_fn = build_tta_augmentation_fn(
+        tta_config,
+        normalize_mode=normalize_mode,
+        num_channels=num_channels,
+    )
     all_predictions = []
 
     for batch in dataset:
@@ -29,12 +43,18 @@ def predict_with_tta(
         else:
             x_batch = batch
 
-        pred_orig = model(x_batch, training=False).numpy()
+        pred_orig = model(x_batch, training=False)
+        if isinstance(pred_orig, dict):
+            pred_orig = pred_orig.get("base_output", list(pred_orig.values())[0])
+        pred_orig = pred_orig.numpy() if hasattr(pred_orig, "numpy") else pred_orig
         pred_sum = pred_orig.copy()
 
         for _ in range(num_augmentations):
             x_aug = tf.map_fn(tta_fn, x_batch)
-            pred_aug = model(x_aug, training=False).numpy()
+            pred_aug = model(x_aug, training=False)
+            if isinstance(pred_aug, dict):
+                pred_aug = pred_aug.get("base_output", list(pred_aug.values())[0])
+            pred_aug = pred_aug.numpy() if hasattr(pred_aug, "numpy") else pred_aug
             pred_sum += pred_aug
 
         pred_avg = pred_sum / (num_augmentations + 1)
