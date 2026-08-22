@@ -179,9 +179,8 @@ def tf_canonical_preprocess(
         img_normalized = img_resized - mean
     else:
         img_normalized = img_resized / 255.0
-
-    # Final safety clamp to [0, 1]
-    img_normalized = tf.clip_by_value(img_normalized, 0.0, 1.0)
+        # Safety clamp to [0, 1] for rescaled images
+        img_normalized = tf.clip_by_value(img_normalized, 0.0, 1.0)
 
     img_normalized.set_shape([img_size, img_size, num_channels])
     return img_normalized
