@@ -54,8 +54,6 @@ def build_augmentation_fn(
 
     def augment(image: tf.Tensor, targets: Union[tf.Tensor, Dict[str, tf.Tensor]]) -> Tuple[tf.Tensor, Any]:
         augmented_image = aug_model(image, training=True)
-        # Apply slight contrast jitter (simulates varying ink pressure)
-        augmented_image = tf.image.random_contrast(augmented_image, lower=0.95, upper=1.05)
         return augmented_image, targets
 
     return augment
