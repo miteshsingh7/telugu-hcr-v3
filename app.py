@@ -160,7 +160,34 @@ def load_hcr_model():
                 loaded_path = str(p)
                 break
             except Exception:
-                continue
+                try:
+                    import zipfile, io
+                    with zipfile.ZipFile(str(p), "r") as z:
+                        cfg = json.loads(z.read("config.json"))
+                    def clean_cfg(d):
+                        if isinstance(d, dict):
+                            d.pop("quantization_config", None)
+                            for k, v in d.items():
+                                clean_cfg(v)
+                        elif isinstance(d, list):
+                            for item in d:
+                                clean_cfg(item)
+                    clean_cfg(cfg)
+                    buf = io.BytesIO()
+                    with zipfile.ZipFile(str(p), "r") as z_in:
+                        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z_out:
+                            for item in z_in.infolist():
+                                if item.filename == "config.json":
+                                    z_out.writestr("config.json", json.dumps(cfg))
+                                else:
+                                    z_out.writestr(item, z_in.read(item.filename))
+                    with open(str(p), "wb") as f:
+                        f.write(buf.getvalue())
+                    loaded_model = tf.keras.models.load_model(str(p), compile=False)
+                    loaded_path = str(p)
+                    break
+                except Exception:
+                    continue
                 
     # If not found locally, attempt Hugging Face Hub download
     if loaded_model is None:
