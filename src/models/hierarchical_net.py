@@ -16,7 +16,7 @@ def build_multitask_model(
     input_shape: Tuple[int, int, int] = (96, 96, 1),
     num_base_classes: int = 52,
     num_modifier_classes: int = 16,
-    num_vattu_classes: int = 36,
+    num_vattu_classes: int = 37,
     dropout_rate: float = 0.35,
 ) -> tf.keras.Model:
     """Builds a Multi-Task Deep Neural Network with shared feature extraction.

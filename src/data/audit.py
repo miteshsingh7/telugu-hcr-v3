@@ -25,7 +25,7 @@ def extract_class_name(file_path: str, data_root: Path) -> str:
     parts = Path(file_path).parts
     if "Test1" in parts:
         idx = parts.index("Test1")
-        return "/".join(parts[idx + 1 : -1])
+        return "__".join(parts[idx + 1 : -1])
     parent = Path(file_path).parent
     try:
         rel = parent.relative_to(data_root)
@@ -35,8 +35,8 @@ def extract_class_name(file_path: str, data_root: Path) -> str:
         rel_parts = rel.parts
         if "Test1" in rel_parts:
             idx = rel_parts.index("Test1")
-            return "/".join(rel_parts[idx + 1 :])
-        return rel_str
+            return "__".join(rel_parts[idx + 1 :])
+        return "__".join(rel_parts)
     except ValueError:
         return parent.name
 

@@ -1,36 +1,39 @@
-"""Grapheme Decomposition module for Multi-Task Telugu Character Recognition.
+"""Telugu Grapheme Decomposition Module.
 
-Decomposes the 630 Telugu class names into 3 independent sub-targets:
-1. Base Akshara (Consonant or Vowel) — 52 classes
-2. Gunintham Vowel Modifier (Maatra) — 16 classes
-3. Othulu / Vattu Subscript Conjunct — 36 classes
+Decomposes complex 630 Telugu aksharas into 3 independent classification targets:
+1. Base Akshara (52 classes: 16 Vowels + 36 Consonants)
+2. Vowel Modifier / Gunintham Sign (16 classes)
+3. Subscript Conjunct / Othu / Vattu (37 classes: None + 36 Consonants)
 """
 
 import json
 from pathlib import Path
 from typing import Dict, Tuple, List, Any
 
-# 1. 52 Distinct Base Telugu Letters (36 Consonants + 16 Standalone Vowels)
+
+# 1. 52 Canonical Telugu Base Aksharas
 BASE_LETTERS: List[str] = [
-    # Achulu (Vowels)
-    "అ", "ఆ", "ఇ", "ఈ", "ఉ", "ఊ", "ఋ", "ౠ", "ఎ", "ఏ", "ఐ", "ఒ", "ఓ", "ఔ", "అం", "అః",
-    # Hallulu (Consonants)
+    # Achulu (Vowels) - 16
+    "అ", "ఆ", "ఇ", "ఈ", "ఉ", "ఊ", "ఋ", "ౠ",
+    "ఎ", "ఏ", "ఐ", "ఒ", "ఓ", "ఔ", "అం", "అః",
+    # Hallulu (Consonants) - 36
     "క", "ఖ", "గ", "ఘ", "ఙ",
     "చ", "ఛ", "జ", "ఝ", "ఞ",
     "ట", "ఠ", "డ", "ఢ", "ణ",
     "త", "థ", "ద", "ధ", "న",
     "ప", "ఫ", "బ", "భ", "మ",
-    "య", "ర", "ల", "వ", "శ", "ష", "స", "హ", "ళ", "క్ష", "ఱ"
+    "య", "ర", "ఱ", "ల", "ళ", "వ",
+    "శ", "ష", "స", "హ", "క్ష"
 ]
 
-# 2. 16 Vowel Modifiers (Gunintham signs)
+# 2. 16 Canonical Vowel Modifiers (Guninthamulu)
 VOWEL_MODIFIERS: List[str] = [
-    "none",   # Basic form (e.g. క)
+    "none",   # తలకట్టు / అ (క)
     "aa",     # దీర్ఘం ా (కా)
     "i",      # గుడి ి (కి)
-    "ii",     # గుడి దీర్ఘం ీ (కీ)
+    "ii",     # గుడిదీర్ఘం ీ (కీ)
     "u",      # కొమ్ము ు (కు)
-    "uu",     # కొమ్ము దీర్ఘం ూ (కూ)
+    "uu",     # కొమ్ముదీర్ఘం ూ (కూ)
     "ru",     # వట్రుసుడి ృ (కృ)
     "ruu",    # వట్రుసుడి దీర్ఘం ౄ (కౄ)
     "e",      # ఎత్వం ె (కె)
@@ -43,13 +46,13 @@ VOWEL_MODIFIERS: List[str] = [
     "ah",     # విసర్గ ః (కః)
 ]
 
-# 3. 36 Subscript Conjuncts (Othulu / Vattulu)
+# 3. 37 Subscript Conjuncts (Othulu / Vattulu)
 CONJUNCT_MODIFIERS: List[str] = [
     "none",   # Standard character (no subscript)
     "k", "kh", "g", "gh", "gna",
     "c", "ch", "j", "jh", "jna",
     "t", "th", "d", "dh", "ana",
-    "th_dental", "d_dental", "n",
+    "th_dental", "d_dental", "dh_dental", "n",
     "p", "ph", "b", "bh", "m",
     "y", "r", "l", "v", "sh", "sha", "s", "h", "ll", "ks", "rr", "z"
 ]
@@ -57,6 +60,7 @@ CONJUNCT_MODIFIERS: List[str] = [
 BASE_MAP: Dict[str, int] = {letter: idx for idx, letter in enumerate(BASE_LETTERS)}
 MOD_MAP: Dict[str, int] = {mod: idx for idx, mod in enumerate(VOWEL_MODIFIERS)}
 VATTU_MAP: Dict[str, int] = {v: idx for idx, v in enumerate(CONJUNCT_MODIFIERS)}
+
 
 # Alias dictionary for dataset folder quirks
 CONSONANT_ALIASES = {
@@ -93,6 +97,27 @@ MOD_ALIASES = {
     "m": "am", "r": "ru", "rrr": "ruu", "R": "ru", "RRA": "aa", "RRI": "i", "RRII": "ii",
     "RRU": "u", "RRUU": "uu", "rre": "e", "rree": "ee", "rrai": "ai", "rro": "o", "rroo": "oo",
     "rrow": "au", "rrm": "am", "rrah": "ah", "rru": "u", "rruu": "uu"
+}
+
+VATTU_ALIASES = {
+    "an": "ana", "ana": "ana", "nn": "ana",
+    "b": "b", "ba": "b", "bh": "bh", "bha": "bh",
+    "c": "c", "ca": "c", "ch": "ch", "cha": "ch", "chh": "ch",
+    "d": "d", "da": "d_dental", "dh": "dh", "dha": "dh_dental",
+    "g": "g", "ga": "g", "gh": "gh", "gha": "gh",
+    "h": "h", "ha": "h",
+    "j": "j", "ja": "j", "jh": "jh", "jha": "jh",
+    "k": "k", "ka": "k", "kh": "kh", "kha": "kh", "ksh": "ks", "ks": "ks",
+    "l": "l", "la": "l", "ll": "ll", "lla": "ll",
+    "m": "m", "ma": "m",
+    "n": "n", "na": "n",
+    "p": "p", "pa": "p", "ph": "ph", "pha": "ph",
+    "r": "r", "ra": "r", "rr": "rr", "rra": "rr",
+    "s": "s", "sa": "s", "sh": "sh", "sha": "sha",
+    "t": "t", "ta": "t", "tt": "t", "th": "th", "tha": "th_dental", "th_dental": "th_dental",
+    "v": "v", "va": "v",
+    "y": "y", "ya": "y",
+    "z": "z"
 }
 
 
@@ -136,7 +161,8 @@ def decompose_class_name(class_name: str) -> Tuple[int, int, int]:
         c_key = parts[1] if len(parts) > 1 else "k"
         base_letter = CONSONANT_ALIASES.get(c_key, CONSONANT_ALIASES.get(c_key.lower(), "క"))
         modifier = "none"
-        vattu = c_key if c_key in VATTU_MAP else "k"
+        v_raw = c_key.lower()
+        vattu = VATTU_ALIASES.get(c_key, VATTU_ALIASES.get(v_raw, "k"))
         
     base_idx = BASE_MAP.get(base_letter, 0)
     mod_idx = MOD_MAP.get(modifier, 0)
@@ -146,24 +172,20 @@ def decompose_class_name(class_name: str) -> Tuple[int, int, int]:
 
 
 def export_grapheme_maps(output_path: str = "outputs/grapheme_maps.json") -> Dict[str, Any]:
-    """Generates and exports the complete grapheme mapping dictionary."""
+    """Exports all grapheme maps to JSON."""
     data = {
         "num_base_classes": len(BASE_LETTERS),
         "num_modifier_classes": len(VOWEL_MODIFIERS),
         "num_vattu_classes": len(CONJUNCT_MODIFIERS),
         "base_letters": BASE_LETTERS,
-        "vowel_modifiers": VOWEL_MODIFIERS,
-        "conjunct_modifiers": CONJUNCT_MODIFIERS,
         "base_map": BASE_MAP,
+        "vowel_modifiers": VOWEL_MODIFIERS,
         "mod_map": MOD_MAP,
-        "vattu_map": VATTU_MAP
+        "conjunct_modifiers": CONJUNCT_MODIFIERS,
+        "vattu_map": VATTU_MAP,
     }
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    p = Path(output_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
     return data
-
-
-if __name__ == "__main__":
-    maps = export_grapheme_maps()
-    print(f"Exported grapheme maps: {maps['num_base_classes']} Base, {maps['num_modifier_classes']} Modifiers, {maps['num_vattu_classes']} Vattu marks.")

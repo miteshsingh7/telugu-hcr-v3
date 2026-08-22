@@ -23,7 +23,7 @@ from tensorflow.keras import layers, models
 PROJ_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJ_ROOT))
 
-from src.data.preprocess import tf_canonical_preprocess
+from src.data.augmentation import build_augmentation_fn
 from src.data.decomposition import decompose_class_name, export_grapheme_maps
 
 
@@ -100,7 +100,7 @@ def build_pretrained_multitask_model(
     img_size: int = 128,
     num_base: int = 52,
     num_mod: int = 16,
-    num_vattu: int = 36,
+    num_vattu: int = 37,
 ) -> tf.keras.Model:
     """Builds a MobileNetV2 Multi-Task Network pre-trained on ImageNet."""
     inputs = layers.Input(shape=(img_size, img_size, 3), name="image_input")
@@ -182,22 +182,19 @@ def build_pipeline(
         targets = {
             "base_output": tf.one_hot(b, depth=52),
             "modifier_output": tf.one_hot(m, depth=16),
-            "vattu_output": tf.one_hot(v, depth=36),
+            "vattu_output": tf.one_hot(v, depth=37),
         }
         return img, targets
 
     ds = ds.map(load_img, num_parallel_calls=tf.data.AUTOTUNE)
 
     if training:
-        def augment(img, targets):
-            pad = 6
-            img_pad = tf.pad(img, [[pad, pad], [pad, pad], [0, 0]], mode="CONSTANT", constant_values=1.0)
-            img_aug = tf.image.random_crop(img_pad, [img_size, img_size, 3])
-            img_aug = tf.image.random_brightness(img_aug, max_delta=0.08)
-            img_aug = tf.image.random_contrast(img_aug, lower=0.92, upper=1.08)
-            return img_aug, targets
-
-        ds = ds.map(augment, num_parallel_calls=tf.data.AUTOTUNE)
+        aug_fn = build_augmentation_fn(
+            config={"rotation_range": 5, "width_shift": 0.05, "height_shift": 0.05, "zoom_range": 0.05},
+            normalize_mode="imagenet",
+            num_channels=3,
+        )
+        ds = ds.map(aug_fn, num_parallel_calls=tf.data.AUTOTUNE)
         ds = ds.shuffle(buffer_size=5000)
 
     ds = ds.batch(batch_size)

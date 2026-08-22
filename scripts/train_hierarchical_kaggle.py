@@ -148,22 +148,20 @@ def build_multitask_dataset(
         targets = {
             "base_output": tf.one_hot(b_lbl, depth=52),
             "modifier_output": tf.one_hot(m_lbl, depth=16),
-            "vattu_output": tf.one_hot(v_lbl, depth=36),
+            "vattu_output": tf.one_hot(v_lbl, depth=37),
         }
         return img, targets
 
     ds = ds.map(load_and_preprocess, num_parallel_calls=tf.data.AUTOTUNE)
 
     if training:
-        # Augmentation with slight translation, rotation, and stroke jitter
-        def augment(img, targets):
-            # Random shift (+-4%)
-            pad = 4
-            img_pad = tf.pad(img, [[pad, pad], [pad, pad], [0, 0]], mode="CONSTANT", constant_values=1.0)
-            img_aug = tf.image.random_crop(img_pad, [img_size, img_size, num_channels])
-            return img_aug, targets
-
-        ds = ds.map(augment, num_parallel_calls=tf.data.AUTOTUNE)
+        from src.data.augmentation import build_augmentation_fn
+        aug_fn = build_augmentation_fn(
+            config={"rotation_range": 4, "width_shift": 0.04, "height_shift": 0.04, "zoom_range": 0.04},
+            normalize_mode="rescale",
+            num_channels=num_channels,
+        )
+        ds = ds.map(aug_fn, num_parallel_calls=tf.data.AUTOTUNE)
         ds = ds.shuffle(buffer_size=min(num_samples, 5000))
 
     ds = ds.batch(batch_size)
