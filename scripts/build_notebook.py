@@ -8,14 +8,17 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
 
-# Create in-memory zip of configs and src
+# Create in-memory zip of configs, src, scripts, and output metadata json files
 buf = io.BytesIO()
 with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
     for folder in ["configs", "src", "scripts"]:
         for p in (root / folder).rglob("*"):
-            if p.is_file() and not p.name.startswith(".") and not p.name.endswith(".pyc"):
+            if p.is_file() and not p.name.startswith(".") and not p.name.endswith(".pyc") and "__pycache__" not in str(p):
                 rel = p.relative_to(root)
                 z.write(p, arcname=str(rel))
+    for p in (root / "outputs").glob("*.json"):
+        rel = p.relative_to(root)
+        z.write(p, arcname=str(rel))
 
 b64_zip = base64.b64encode(buf.getvalue()).decode("utf-8")
 
@@ -49,10 +52,10 @@ add_md("""# Telugu Handwritten Character Recognizer (v3)
 
 > **How to Run:**
 > 1. In the right sidebar under **Notebook Options** -> **Accelerator**, choose **GPU P100** or **GPU T4 x2**.
-> 2. Under **Input Data**, click **+ Add Input** and attach the Telugu Handwritten Dataset (e.g. `data-telugu-handwritten`).
+> 2. Under **Input Data**, click **+ Add Input** and attach the Telugu Handwritten Dataset (`data-telugu-handwritten`).
 > 3. Click **Run All** (Total runtime: ~25-30 minutes).""")
 
-add_code(f"""# 1. Unpack Full Source Code & Configuration
+add_code(f"""# 1. Unpack Codebase & Model Architecture
 import os
 import sys
 import base64
@@ -71,24 +74,23 @@ with zipfile.ZipFile(io.BytesIO(base64.b64decode(B64_ZIP)), "r") as z:
     z.extractall(WORK_DIR)
 
 print("✅ Codebase unpacked successfully to:", WORK_DIR)
-print("📦 Available modules:", [p.name for p in (WORK_DIR / "src").glob("*.py")])""")
+print("📦 Available scripts:", [p.name for p in (WORK_DIR / "scripts").glob("*.py")])""")
 
-add_code("""# 2. Environment Setup & GPU Verification
+add_code("""# 2. Environment Setup & Mixed Precision GPU Acceleration
 import tensorflow as tf
 
-# Mixed precision for 2.5x speedup on Tensor Cores
 gpus = tf.config.list_physical_devices("GPU")
 if gpus:
     print("🚀 GPU Active:", [g.name for g in gpus])
     try:
         tf.keras.mixed_precision.set_global_policy("mixed_float16")
-        print("⚡ Mixed precision (mixed_float16) active.")
+        print("⚡ Mixed precision (mixed_float16) enabled for 2.5x speed.")
     except Exception as e:
         print("Note on mixed precision:", e)
 else:
     print("⚠️ WARNING: No GPU detected! Please enable GPU in the right sidebar under Accelerator.")""")
 
-add_code("""# 3. Auto-Discover Dataset Directory in /kaggle/input (Instant 0.01s)
+add_code("""# 3. Auto-Detect Dataset Root in /kaggle/input (Instant 0.01s)
 import os
 from pathlib import Path
 
@@ -113,10 +115,21 @@ REPORTS_DIR = str(WORK_DIR / "reports")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)""")
 
-add_code("""# 4. Generate Grapheme Decomposition Maps (Base 52, Mod 16, Vattu 36)
+add_code("""# 4. Generate Grapheme Decomposition Maps & Stratified Splits
 from src.data.decomposition import export_grapheme_maps
+from src.data.split import create_splits
+
+# 1. Export grapheme decomposition mappings (52 Base, 16 Modifier, 36 Vattu)
 maps = export_grapheme_maps(str(WORK_DIR / "outputs/grapheme_maps.json"))
-print(f"✅ Grapheme decomposition maps ready: {maps['num_base_classes']} Base Aksharas, {maps['num_modifier_classes']} Vowel Signs, {maps['num_vattu_classes']} Conjuncts.")""")
+print(f"✅ Grapheme maps ready: {maps['num_base_classes']} Base, {maps['num_modifier_classes']} Modifier, {maps['num_vattu_classes']} Vattu.")
+
+# 2. Auto-generate stratified splits if manifests are not already present
+train_csv = WORK_DIR / "outputs/train.csv"
+if not train_csv.exists() or train_csv.stat().st_size < 100:
+    print("⚡ Generating stratified 80/10/10 data splits from raw dataset...")
+    create_splits(data_dir=DATA_DIR, output_dir=OUTPUT_DIR, seed=42)
+else:
+    print("✅ Found existing train/val/test manifests.")""")
 
 add_code("""# 5. Train Pre-Trained Multi-Task Model (MobileNetV2 + Focal Loss, ~25 Mins)
 from scripts.train_pretrained_multitask import run_training
@@ -129,7 +142,7 @@ history = run_training(
     img_size=128,
 )""")
 
-add_code("""# 6. Copy Model to Output for 1-Click Download
+add_code("""# 6. Copy Trained Model to Main Output for 1-Click Download
 import shutil
 
 checkpoint_src = WORK_DIR / "checkpoints/multitask_mobilenet_best.keras"

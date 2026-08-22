@@ -8,7 +8,7 @@ Provides dual-mode canonical preprocessing:
 from typing import Tuple, Union
 import numpy as np
 import tensorflow as tf
-from PIL import Image
+from PIL import Image, ImageOps
 
 try:
     import cv2
@@ -22,6 +22,7 @@ def numpy_canonical_preprocess(
     img_size: int = 96,
     num_channels: int = 1,
     fill_ratio: float = 0.55,
+    normalize_mode: str = "rescale",
 ) -> Tuple[np.ndarray, Image.Image]:
     """NumPy / OpenCV canonical preprocessor for live inference.
     
@@ -29,10 +30,10 @@ def numpy_canonical_preprocess(
     2. Background color normalization (ensures white background ~245-255, dark ink).
     3. Content bounding box extraction & centering with natural 55% frame fill matching training data.
     4. Anti-aliased area resizing and ink density calibration.
-    5. Float32 normalization in [0.0, 1.0].
+    5. Float32 normalization with support for 'rescale' ([0, 1]) and 'imagenet' mean-subtraction.
     
     Returns:
-        tensor: np.ndarray of shape (1, img_size, img_size, num_channels), float32 in [0, 1].
+        tensor: np.ndarray of shape (1, img_size, img_size, num_channels), float32.
         display_img: PIL Image of the preprocessed image.
     """
     if isinstance(img_input, Image.Image):
@@ -57,13 +58,13 @@ def numpy_canonical_preprocess(
         else:
             img_gray = img_input.copy()
 
-    # Ensure white background (~245-255) and dark ink
-    if np.mean(img_gray) < 127:
+    # Ensure white background (255) and dark ink (0)
+    if np.mean(img_gray) < 127.0:
         img_gray = 255 - img_gray
 
     h, w = img_gray.shape[:2]
-    
-    # If image is a large canvas drawing (e.g. 300x300 canvas), crop to bounding box and center at 55% fill
+
+    # If image is a canvas drawing, crop to bounding box and center at fill_ratio
     if max(h, w) > 120 and _HAS_CV2:
         ink_mask = (img_gray < 210).astype(np.uint8) * 255
         if np.any(ink_mask > 0):
@@ -73,8 +74,8 @@ def numpy_canonical_preprocess(
 
             target_len = int(img_size * fill_ratio)
             scale = target_len / max(bw, bh)
-            nw = max(2, int(bw * scale))
-            nh = max(2, int(bh * scale))
+            nw = max(2, int(round(bw * scale)))
+            nh = max(2, int(round(bh * scale)))
 
             interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
             resized = cv2.resize(cropped, (nw, nh), interpolation=interp)
@@ -90,13 +91,16 @@ def numpy_canonical_preprocess(
             canvas = np.full((img_size, img_size), 246, dtype=np.uint8)
     else:
         # Standard dataset scan: pad to square and resize
-        if h != w and _HAS_CV2:
+        if h != w:
             max_d = max(h, w)
             top = (max_d - h) // 2
             bottom = max_d - h - top
             left = (max_d - w) // 2
             right = max_d - w - left
-            padded = cv2.copyMakeBorder(img_gray, top, bottom, left, right, cv2.BORDER_CONSTANT, value=255)
+            if _HAS_CV2:
+                padded = cv2.copyMakeBorder(img_gray, top, bottom, left, right, cv2.BORDER_CONSTANT, value=255)
+            else:
+                padded = np.pad(img_gray, ((top, bottom), (left, right)), mode="constant", constant_values=255)
         else:
             padded = img_gray
 
@@ -106,16 +110,19 @@ def numpy_canonical_preprocess(
         else:
             canvas = np.array(Image.fromarray(padded).resize((img_size, img_size)))
 
-    arr_norm = canvas.astype(np.float32) / 255.0
-    arr_norm = np.clip(arr_norm, 0.0, 1.0)
-
-    if num_channels == 1:
-        tensor = np.expand_dims(np.expand_dims(arr_norm, -1), 0)
-    elif num_channels == 3:
-        arr_3ch = np.repeat(arr_norm[..., np.newaxis], 3, axis=-1)
-        tensor = np.expand_dims(arr_3ch, 0)
+    if normalize_mode == "imagenet" and num_channels == 3:
+        mean = np.array([123.68, 116.779, 103.939], dtype=np.float32)
+        arr_3ch = np.repeat(canvas.astype(np.float32)[..., np.newaxis], 3, axis=-1)
+        arr_norm = arr_3ch - mean
+        tensor = np.expand_dims(arr_norm, 0)
     else:
-        tensor = np.expand_dims(np.expand_dims(arr_norm, -1), 0)
+        arr_norm = canvas.astype(np.float32) / 255.0
+        arr_norm = np.clip(arr_norm, 0.0, 1.0)
+        if num_channels == 3:
+            arr_3ch = np.repeat(arr_norm[..., np.newaxis], 3, axis=-1)
+            tensor = np.expand_dims(arr_3ch, 0)
+        else:
+            tensor = np.expand_dims(np.expand_dims(arr_norm, -1), 0)
 
     display_img = Image.fromarray(canvas)
     return tensor, display_img
@@ -151,22 +158,22 @@ def tf_canonical_preprocess(
     shape = tf.shape(img)
     h, w = shape[0], shape[1]
     max_dim = tf.maximum(h, w)
-    pad_h = max_dim - h
-    pad_w = max_dim - w
-    top = pad_h // 2
-    bottom = pad_h - top
-    left = pad_w // 2
-    right = pad_w - left
-    img_padded = tf.pad(img, [[top, bottom], [left, right], [0, 0]], mode="CONSTANT", constant_values=255)
+    pad_h = (max_dim - h) // 2
+    pad_w = (max_dim - w) // 2
 
-    # Resize using bilinear for upscaling and area for downscaling
-    img_resized = tf.cond(
-        max_dim > img_size,
-        lambda: tf.image.resize(img_padded, [img_size, img_size], method="area"),
-        lambda: tf.image.resize(img_padded, [img_size, img_size], method="bilinear"),
+    img_padded = tf.pad(
+        img,
+        [[pad_h, max_dim - h - pad_h], [pad_w, max_dim - w - pad_w], [0, 0]],
+        constant_values=tf.cast(255, img.dtype),
     )
 
-    # Clamp to valid [0, 255] range
+    # High-quality bicubic resize
+    img_resized = tf.image.resize(
+        img_padded,
+        [img_size, img_size],
+        method=tf.image.ResizeMethod.BICUBIC,
+        antialias=True,
+    )
     img_resized = tf.clip_by_value(img_resized, 0.0, 255.0)
 
     if num_channels == 3:

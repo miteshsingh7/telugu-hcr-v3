@@ -395,7 +395,14 @@ with tab_draw:
                 st.error("🚨 Inference unavailable: No trained neural network is loaded.")
             else:
                 img_size = model.input_shape[1] if model.input_shape[1] is not None else 96
-                tensor_in, preproc_img = numpy_canonical_preprocess(input_image, img_size=img_size, num_channels=1)
+                num_channels = model.input_shape[-1] if len(model.input_shape) == 4 else 1
+                norm_mode = "imagenet" if num_channels == 3 else "rescale"
+                tensor_in, preproc_img = numpy_canonical_preprocess(
+                    input_image,
+                    img_size=img_size,
+                    num_channels=num_channels,
+                    normalize_mode=norm_mode,
+                )
                 
                 preds = predict_character(model, tensor_in)
                 

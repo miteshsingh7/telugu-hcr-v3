@@ -80,9 +80,19 @@ def resolve_data_paths() -> Tuple[str, str]:
         if candidate_train.exists() and candidate_val.exists():
             train_csv, val_csv = str(candidate_train), str(candidate_val)
             break
-    if train_csv is None:
-        train_csv = str(PROJ_ROOT / "outputs" / "train.csv")
-        val_csv = str(PROJ_ROOT / "outputs" / "val.csv")
+    if train_csv is None or not Path(train_csv).exists():
+        dataset_root = find_dataset_root()
+        if dataset_root:
+            print("⚡ Train/val manifests not found on disk. Auto-generating stratified splits...")
+            from src.data.split import create_splits
+            out_dir = str(PROJ_ROOT / "outputs")
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            create_splits(data_dir=str(dataset_root), output_dir=out_dir, seed=42)
+            train_csv = str(PROJ_ROOT / "outputs" / "train.csv")
+            val_csv = str(PROJ_ROOT / "outputs" / "val.csv")
+        else:
+            train_csv = str(PROJ_ROOT / "outputs" / "train.csv")
+            val_csv = str(PROJ_ROOT / "outputs" / "val.csv")
     return train_csv, val_csv
 
 
