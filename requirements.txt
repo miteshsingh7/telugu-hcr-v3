@@ -9,6 +9,8 @@ imagehash
 pyyaml
 tqdm
 tabulate
+opencv-python-headless
+huggingface-hub
 streamlit>=1.30.0
 streamlit-drawable-canvas>=0.9.3
 gradio>=4.0.0

@@ -42,6 +42,32 @@ def predict_with_tta(
 
     return np.concatenate(all_predictions, axis=0)
 
+
+def ensemble_predict_with_tta(
+    models: List[tf.keras.Model],
+    dataset: tf.data.Dataset,
+    tta_config: Dict[str, Any] = None,
+    num_augmentations: int = 5,
+    weights: List[float] = None,
+) -> np.ndarray:
+    """Computes Test-Time-Augmented ensemble predictions across multiple models."""
+    tta_config = tta_config or {}
+    if weights is None:
+        weights = [1.0 / len(models)] * len(models)
+    else:
+        total_w = sum(weights)
+        weights = [w / total_w for w in weights]
+
+    ensemble_preds = None
+    for model, w in zip(models, weights):
+        m_preds = predict_with_tta(model, dataset, tta_config, num_augmentations)
+        if ensemble_preds is None:
+            ensemble_preds = w * m_preds
+        else:
+            ensemble_preds += w * m_preds
+
+    return ensemble_preds
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
